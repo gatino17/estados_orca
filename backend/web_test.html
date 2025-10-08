@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <title>Prueba Captura Centro</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 24px; }
+    h1 { margin: 0 0 8px; }
+    .row { display: flex; align-items: center; gap: 12px; margin: 12px 0 20px; }
+    button { padding: 10px 14px; border: 0; border-radius: 10px; background:#0ea5e9; color:#fff;
+             font-weight:600; cursor:pointer; }
+    button[disabled] { opacity:.6; cursor:not-allowed; }
+    .status { font-size: 14px; color: #475569; }
+    img { max-width: 100%; border:1px solid #e5e7eb; border-radius: 12px; }
+  </style>
+</head>
+<body>
+  <h1>Centro: Aqua Centro 1</h1>
+  <div class="row">
+    <button id="btn">Actualizar imagen ahora</button>
+    <span id="status" class="status"></span>
+  </div>
+  <img id="preview" alt="última captura" />
+
+  <script>
+    const BASE = "http://localhost:8000";   // backend
+    const capturaId = 1;                    // <-- ajusta si es otro
+    const btn = document.getElementById("btn");
+    const statusEl = document.getElementById("status");
+    const imgEl = document.getElementById("preview");
+
+    function loadLatest() {
+      imgEl.src = `${BASE}/api/capturas/${capturaId}/ultima/image?t=${Date.now()}`;
+    }
+
+    async function retomar() {
+      btn.disabled = true;
+      statusEl.textContent = "Solicitando captura…";
+      try {
+        // 1) Crear la orden de retoma (POST)
+        const r = await fetch(`${BASE}/api/capturas/${capturaId}/retomar`, { method: "POST" });
+        if (!r.ok) throw new Error(await r.text());
+        statusEl.textContent = "Capturando en el equipo…";
+
+        // 2) Poll suave: refrescar imagen cada 2.5s por hasta 45s
+        const start = Date.now();
+        const tick = async () => {
+          loadLatest();
+          if (Date.now() - start > 45000) {
+            statusEl.textContent = "Tiempo de espera agotado";
+            btn.disabled = false;
+            btn.textContent = "Actualizar imagen ahora";
+            return;
+          }
+          setTimeout(tick, 2500);
+        };
+        tick();
+      } catch (e) {
+        console.error(e);
+        statusEl.textContent = "Error solicitando retoma";
+        btn.disabled = false;
+      }
+    }
+
+    btn.addEventListener("click", () => {
+      btn.textContent = "Capturando…";
+      retomar().finally(() => {
+        // el botón se re-habilita al terminar el poll o por timeout
+      });
+    });
+
+    // Carga inicial
+    loadLatest();
+  </script>
+</body>
+</html>

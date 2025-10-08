@@ -1,0 +1,7 @@
+/* src/index.css */
+@import "tailwindcss";
+
+/* Globales mínimos para layout de app con sidebar fijo */
+html, body, #root { height: 100%; }
+body { margin: 0; }
+
