@@ -1,5 +1,5 @@
 // CentrosTable.jsx
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import ImageModal from "./ImageModal";
 import EditCapturaModal from "./EditCapturaModal";
 
@@ -47,7 +47,7 @@ function estadoPillClasses(estadoRaw) {
   return "bg-slate-100 text-slate-700 ring-1 ring-slate-300";
 }
 
-export default function CentrosTable({ base, rows, onRefresh, refreshStatus, cacheBust }) {
+export default function CentrosTable({ base, rows, onRefresh, onRefreshRow, refreshStatus, cacheBust }) {
   const [imgOpen, setImgOpen] = useState(false);
   const [imgSrc, setImgSrc] = useState("");
   const [imgTitle, setImgTitle] = useState("");
@@ -55,6 +55,34 @@ export default function CentrosTable({ base, rows, onRefresh, refreshStatus, cac
   const [statusById, setStatusById] = useState({});
   const [editRow, setEditRow] = useState(null);
   const [imgKey, setImgKey] = useState(Date.now());
+
+  // ====== Paginación (cliente) ======
+  const [pageSize, setPageSize] = useState(() => {
+    try {
+      const raw = localStorage.getItem("ct.pageSize");
+      const n = raw ? parseInt(raw, 10) : 15;
+      return [10, 15, 30, 50].includes(n) ? n : 15;
+    } catch {
+      return 15;
+    }
+  });
+  const [page, setPage] = useState(1);
+  const total = rows?.length || 0;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+    if (page < 1) setPage(1);
+  }, [page, totalPages]);
+
+  useEffect(() => {
+    try { localStorage.setItem("ct.pageSize", String(pageSize)); } catch {}
+    setPage(1); // al cambiar tamaño, volvemos al inicio
+  }, [pageSize]);
+
+  const startIdx = (page - 1) * pageSize;
+  const endIdx = Math.min(startIdx + pageSize, total);
+  const viewRows = useMemo(() => (rows || []).slice(startIdx, endIdx), [rows, startIdx, endIdx]);
 
   const btn = {
     base: "px-3 py-1.5 rounded-lg text-sm transition focus:outline-none focus:ring-2 focus:ring-offset-1",
@@ -70,8 +98,21 @@ export default function CentrosTable({ base, rows, onRefresh, refreshStatus, cac
   }
 
   function thumb(row) {
+    if (!row?.ultima_imagen_url) return "";
+    const path = row.ultima_imagen_url.replace("/ultima/image", "/ultima/thumb?max_w=480");
     const bust = cacheBust || imgKey;
-    return `${base}${row.ultima_imagen_url}?t=${bust}-${row.id ?? row.centro_id}`;
+    return `${base}${path}${bust ? `&t=${bust}-${row.id ?? row.centro_id}` : ""}`;
+  }
+
+  function thumbSrcSet(row) {
+    if (!row?.ultima_imagen_url) return undefined;
+    const basePath = row.ultima_imagen_url.replace("/ultima/image", "/ultima/thumb");
+    const qs = (w) => `?max_w=${w}${cacheBust || imgKey ? `&t=${cacheBust || imgKey}` : ""}`;
+    return [
+      `${base}${basePath}${qs(320)} 320w`,
+      `${base}${basePath}${qs(480)} 480w`,
+      `${base}${basePath}${qs(640)} 640w`,
+    ].join(", ");
   }
 
   async function getEstado(id) {
@@ -102,7 +143,7 @@ export default function CentrosTable({ base, rows, onRefresh, refreshStatus, cac
       }
       updateStatus(row.centro_id, "Orden enviada…");
       optimisticOnlineUpdate(row);
-      onRefresh?.();
+      onRefreshRow?.(row);
       return;
     }
 
@@ -132,7 +173,7 @@ export default function CentrosTable({ base, rows, onRefresh, refreshStatus, cac
           setBusyId(null);
           updateStatus(row.id, "¡Actualizada!");
           setImgKey(Date.now());
-          onRefresh?.();
+          onRefreshRow?.(row);
         } else {
           setImgKey(Date.now());
         }
@@ -156,27 +197,75 @@ export default function CentrosTable({ base, rows, onRefresh, refreshStatus, cac
   }
 
   function openImage(row) {
-    const src = thumb(row);
-    if (!src) return;
-    setImgSrc(src);
+    // Para el modal usar SIEMPRE la imagen completa, no la miniatura
+    const full = row?.ultima_imagen_url
+      ? `${base}${row.ultima_imagen_url}?t=${imgKey}-${row.id ?? row.centro_id}`
+      : thumb(row);
+    if (!full) return;
+    setImgSrc(full);
     setImgTitle(row.nombre || `Centro ${row.centro_id}`);
     setImgOpen(true);
   }
 
   function onSaved() {
-    onRefresh?.();
+    (onRefreshRow ? onRefreshRow(editRow) : onRefresh?.());
     setImgKey(Date.now());
   }
 
   return (
     <>
       <div className="bg-white rounded-2xl shadow-lg ring-1 ring-black/5 overflow-hidden">
+        {/* Toolbar de paginación */}
+        <div className="px-3 md:px-4 py-3 flex flex-wrap items-center gap-3 border-b bg-slate-50/60">
+          <div className="text-sm text-slate-700">
+            Mostrando <b>{total ? startIdx + 1 : 0}</b>–<b>{endIdx}</b> de <b>{total}</b>
+          </div>
+          <div className="ml-auto flex items-center gap-2">
+            <label className="text-xs text-slate-600">Filas por página</label>
+            <select
+              value={pageSize}
+              onChange={(e) => setPageSize(parseInt(e.target.value, 10))}
+              className="border rounded px-2 py-1 text-sm"
+            >
+              {[10, 15, 30, 50].map((n) => (
+                <option key={n} value={n}>{n}</option>
+              ))}
+            </select>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setPage(1)}
+                disabled={page <= 1}
+                className="px-2 py-1 rounded border text-sm disabled:opacity-50"
+                title="Primera"
+              >«</button>
+              <button
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page <= 1}
+                className="px-2 py-1 rounded border text-sm disabled:opacity-50"
+                title="Anterior"
+              >‹</button>
+              <span className="text-xs text-slate-600 px-2">{page} / {totalPages}</span>
+              <button
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                disabled={page >= totalPages}
+                className="px-2 py-1 rounded border text-sm disabled:opacity-50"
+                title="Siguiente"
+              >›</button>
+              <button
+                onClick={() => setPage(totalPages)}
+                disabled={page >= totalPages}
+                className="px-2 py-1 rounded border text-sm disabled:opacity-50"
+                title="Última"
+              >»</button>
+            </div>
+          </div>
+        </div>
         <table className="min-w-full text-sm">
           {/* THEAD sticky + blur */}
           <thead className="text-slate-700 text-[12px] uppercase tracking-wide">
             <tr className="sticky top-0 z-10 bg-slate-50/90 backdrop-blur supports-[backdrop-filter]:bg-slate-50/60">
               <th className="px-3 md:px-4 py-3 text-left">Centro</th>
-              <th className="px-3 md:px-4 py-3 text-left">Agente</th>
+              <th className="px-3 md:px-4 py-3 text-left hidden sm:table-cell">Agente</th>
               <th className="px-3 md:px-4 py-3 text-left hidden sm:table-cell">Estado</th>
               <th className="px-3 md:px-4 py-3 text-left hidden md:table-cell">Fecha reporte</th>
               <th className="px-3 md:px-4 py-3 text-left">Imagen</th>
@@ -186,7 +275,7 @@ export default function CentrosTable({ base, rows, onRefresh, refreshStatus, cac
           </thead>
 
           <tbody className="divide-y divide-slate-200">
-            {rows.map((row) => {
+            {viewRows.map((row) => {
               const key = row.id ?? `centro-${row.centro_id}`;
               const estadoCls = estadoPillClasses(row.estado);
 
@@ -221,7 +310,7 @@ export default function CentrosTable({ base, rows, onRefresh, refreshStatus, cac
                   </td>
 
                   {/* Agente */}
-                  <td className="px-3 md:px-4 py-3 align-top">
+                  <td className="px-3 md:px-4 py-3 align-top hidden sm:table-cell">
                     <div className="text-xs text-slate-700 space-y-0.5">
                       <div className="font-mono">{row.uuid_equipo || "—"}</div>
                       <div className="text-[11px] text-slate-500">Centro ID: {row.centro_id}</div>
@@ -248,6 +337,11 @@ export default function CentrosTable({ base, rows, onRefresh, refreshStatus, cac
                     {row.ultima_imagen_url ? (
                       <img
                         src={thumb(row)}
+                        srcSet={thumbSrcSet(row)}
+                        sizes="176px"
+                        loading="lazy"
+                        decoding="async"
+                        fetchpriority="low"
                         className="w-44 h-28 object-cover rounded-lg ring-1 ring-slate-200 hover:shadow-md cursor-zoom-in transition"
                         onClick={() => openImage(row)}
                         alt=""
@@ -287,12 +381,34 @@ export default function CentrosTable({ base, rows, onRefresh, refreshStatus, cac
                       {row.id && (
                         <button
                           onClick={() => eliminarCentro(row.centro_id)}
-                          className={[btn.base, btn.rose].join(" ")}
+                          className={[
+                            btn.base,
+                            btn.rose,
+                            "p-2 flex items-center justify-center w-9 h-9" // icon button compacto
+                          ].join(" ")}
                           title="Eliminar centro"
+                          aria-label={`Eliminar ${row.nombre || `centro ${row.centro_id}`}`}
                         >
-                          Eliminar
+                          {/* Trash icon (outline) */}
+                          <svg
+                            viewBox="0 0 24 24"
+                            className="w-4 h-4"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            aria-hidden="true"
+                          >
+                            <path d="M3 6h18" />
+                            <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                            <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+                            <path d="M10 11v6M14 11v6" />
+                          </svg>
+                          <span className="sr-only">Eliminar</span>
                         </button>
                       )}
+
                     </div>
                   </td>
 

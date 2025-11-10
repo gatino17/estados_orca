@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useRef, useCallback } from "react";
+﻿import { useEffect, useMemo, useState, useRef, useCallback } from "react";
 import "./index.css";
 import "./App.css";
 import Sidebar from "./components/Sidebar";
@@ -243,6 +243,61 @@ function DashboardShell({
   const [section, setSection] = useState("centros"); // 'centros' | 'users' | 'summary'
   const [view, setView] = useState("table");
 
+  // AbortControllers para cancelar solicitudes al cambiar de cliente
+  const capturasAbortRef = useRef(null);
+  const statusAbortRef = useRef(null);
+
+  // Cache efímera para prefetch por cliente
+  const prefetchCacheRef = useRef({}); // { [clienteId]: { rows, statusMap, ts } }
+
+  const prefetchForCliente = useCallback(async (clienteObj) => {
+    const cid = clienteObj?.id;
+    if (!cid) return;
+    const now = Date.now();
+    const cached = prefetchCacheRef.current[cid];
+    if (cached && now - cached.ts < 10000) return; // 10s TTL
+
+    try {
+      const qCapt = new URLSearchParams();
+      qCapt.set("cliente_id", String(cid));
+      if (fecha) qCapt.set("fecha", fecha);
+
+      const qStat = new URLSearchParams({
+        cliente_id: String(cid),
+        threshold_sec: String(STATUS_THRESHOLD_SEC),
+        _ts: String(Date.now()),
+      });
+
+      const [rc, rs] = await Promise.all([
+        fetch(`${base}/api/capturas?${qCapt.toString()}`, { cache: "no-store" }),
+        fetch(`${base}/api/centros/status?${qStat.toString()}`, { cache: "no-store" }),
+      ]);
+      const nextRows = await rc.json().catch(() => []);
+      const stData = await rs.json().catch(() => ({}));
+      const map = {};
+      for (const it of stData.items || []) map[it.id] = { online: !!it.online, last_seen: it.last_seen || null };
+
+      prefetchCacheRef.current[cid] = { rows: Array.isArray(nextRows) ? nextRows : [], statusMap: map, ts: now };
+    } catch {}
+  }, [base, fecha]);
+
+  // Prefetch silencioso de los primeros clientes tras cargar la lista
+  useEffect(() => {
+    if (!Array.isArray(clientes) || clientes.length === 0) return;
+    let cancelled = false;
+    const LIMIT = 4; // cantidad de clientes a precargar (ajustado)
+    const list = clientes.slice(0, LIMIT);
+    (async () => {
+      for (const c of list) {
+        if (cancelled) break;
+        try { await prefetchForCliente(c); } catch {}
+        // pequeño respiro para no saturar la red
+        await new Promise((r) => setTimeout(r, 60));
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [clientes, prefetchForCliente]);
+
   
   useEffect(() => {
     if (section === "users") {
@@ -288,7 +343,9 @@ function DashboardShell({
   const ivStatusRef = useRef(null);
 
   // ====== Auto-refresh de capturas ======
-  const [cacheBust, setCacheBust] = useState(Date.now());
+  // Evita forzar recarga periódica de imágenes: solo se actualizarán
+  // cuando una captura realmente cambie (p.ej., tras "retomar").
+  const [cacheBust, setCacheBust] = useState(null);
   const ivRowsRef = useRef(null);
 
   const loadClientes = useCallback(async () => {
@@ -332,13 +389,21 @@ function DashboardShell({
     if (!cliente?.id) return;
     if (!opts.silent) setLoading(true);
     try {
-      const r = await fetch(`${base}/api/capturas?${qs}`, { cache: "no-store" });
+      // cancela una petición previa en curso
+      if (capturasAbortRef.current) capturasAbortRef.current.abort();
+      const ctrl = new AbortController();
+      capturasAbortRef.current = ctrl;
+
+      const r = await fetch(`${base}/api/capturas?${qs}`, { cache: "no-store", signal: ctrl.signal });
       const data = await r.json();
       setRows(data);
     } catch (e) {
+      if (e && e.name === "AbortError") return; // cambio de cliente
       console.error("capturas:", e);
       setRows([]);
     } finally {
+      // limpia referencia; si otra petición se inició luego, esta no toca loading
+      capturasAbortRef.current = null;
       if (!opts.silent) setLoading(false);
     }
   }
@@ -358,7 +423,11 @@ function DashboardShell({
     }).toString();
 
     try {
-      const r = await fetch(`${base}/api/centros/status?${q2}`, { cache: "no-store" });
+      if (statusAbortRef.current) statusAbortRef.current.abort();
+      const ctrl = new AbortController();
+      statusAbortRef.current = ctrl;
+
+      const r = await fetch(`${base}/api/centros/status?${q2}`, { cache: "no-store", signal: ctrl.signal });
       if (!r.ok) return;
       const data = await r.json();
       const map = {};
@@ -366,8 +435,12 @@ function DashboardShell({
         map[it.id] = { online: !!it.online, last_seen: it.last_seen || null };
       }
       setStatusMap(map);
-    } catch {
+    } catch (e) {
+      if (e && e.name === "AbortError") return;
       /* noop */
+    }
+    finally {
+      statusAbortRef.current = null;
     }
   }, [base, cliente?.id]);
 
@@ -387,21 +460,19 @@ function DashboardShell({
     };
   }, [loadStatus]);
 
-  // polling de capturas + cache-bust (silencioso)
+  // polling de capturas (silencioso) sin forzar recarga de imágenes
   useEffect(() => {
     loadCapturas({ silent: true });
-    setCacheBust(Date.now());
 
     if (ivRowsRef.current) clearInterval(ivRowsRef.current);
     ivRowsRef.current = setInterval(() => {
       loadCapturas({ silent: true });
-      setCacheBust(Date.now());
+      // No actualizamos cacheBust aquí para no disparar recargas de imágenes
     }, 10000);
 
     const onVis = () => {
       if (document.visibilityState === "visible") {
         loadCapturas({ silent: true });
-        setCacheBust(Date.now());
       }
     };
     document.addEventListener("visibilitychange", onVis);
@@ -472,20 +543,41 @@ function DashboardShell({
           aria-hidden={!menuOpen}
           className={[
             "overflow-hidden",
-            "fixed md:static inset-y-0 left-0 z-40",
+            // Sidebar fijo también en desktop
+            "fixed inset-y-0 left-0 z-40",
             "transition-all duration-300",
-            // movil: translate; desktop: rail cuando esta cerrado
+            // móvil: desliza; desktop: rail (64/16)
             menuOpen ? "translate-x-0 w-64 md:w-64" : "-translate-x-full md:translate-x-0 md:w-16",
           ].join(" ")}
         >
           <Sidebar
             base={base}
+            onHoverCliente={prefetchForCliente}
             selectedClienteId={cliente?.id}
             compact={!menuOpen}
             onSelectCliente={(c) => {
               goToSection("centros");
+              // Preparar transición rápida
+              setLoading(true);
+              const cached = prefetchCacheRef.current[c?.id];
+              if (cached) {
+                setRows(cached.rows);
+                setStatusMap(cached.statusMap);
+              } else {
+                setRows([]);
+              }
               setCliente(c);
               setMenuOpen(false); // cerrar en movil tras elegir
+
+              // Cancelar peticiones en curso
+              try { if (capturasAbortRef.current) capturasAbortRef.current.abort(); } catch {}
+              try { if (statusAbortRef.current) statusAbortRef.current.abort(); } catch {}
+
+              // Re-disparar cargas inmediatamente para el nuevo cliente
+              setTimeout(() => {
+                loadStatus();
+                loadCapturas({ silent: false });
+              }, 0);
             }}
             onManageUsers={() => goToSection("users")}
             currentUser={currentUser}
@@ -495,7 +587,13 @@ function DashboardShell({
       </div>
 
       {/* Main */}
-      <div className="flex-1 min-w-0">
+      <div
+        className={[
+          "flex-1 min-w-0",
+          // deja espacio permanente para el sidebar fijo en desktop
+          menuOpen ? "md:ml-64" : "md:ml-16",
+        ].join(" ")}
+      >
         {/* Topbar */}
         <div className="sticky top-0 z-30 bg-gradient-to-r from-blue-950 via-blue-900 to-indigo-800 text-white shadow ring-1 ring-white/10">
           <div className="max-w-7xl mx-auto px-4 py-3 flex flex-wrap items-center gap-3">
@@ -792,15 +890,7 @@ function DashboardShell({
                     <span className="hidden sm:inline"></span>
                   </button>
 
-                  {import.meta.env.DEV && (
-                    <input
-                      className="ml-auto rounded-lg px-3 py-2 text-sm w-[320px] bg-white placeholder-slate-400 text-slate-900 outline-none ring-1 ring-slate-200 focus:ring-2 focus:ring-slate-300"
-                      value={base}
-                      onChange={(e) => setBase(e.target.value)}
-                      placeholder="http://localhost:8000"
-                      title="URL del backend (dev)"
-                    />
-                  )}
+                  {/* Campo de backend ocultado: ya no se muestra en UI */}
                 </div>
               </div>
             )}
@@ -825,7 +915,23 @@ function DashboardShell({
                 </div>
               )}
               {cliente?.id && loading && view !== "status" && (
-                <div className="text-slate-500 text-sm">Cargando capturas...</div>
+                <div className="bg-white rounded-2xl shadow-lg ring-1 ring-black/5 overflow-hidden">
+                  <div className="px-3 md:px-4 py-3 border-b bg-slate-50/60 flex items-center justify-between">
+                    <div className="text-sm text-slate-600">Cargando capturas...</div>
+                    <div className="animate-pulse h-3 w-24 bg-slate-200 rounded" />
+                  </div>
+                  <div className="divide-y divide-slate-200">
+                    {Array.from({ length: 8 }).map((_, i) => (
+                      <div key={i} className="grid grid-cols-6 gap-4 px-3 md:px-4 py-4 animate-pulse">
+                        <div className="col-span-2 h-4 bg-slate-200 rounded" />
+                        <div className="col-span-1 h-4 bg-slate-200 rounded" />
+                        <div className="col-span-1 h-4 bg-slate-200 rounded" />
+                        <div className="col-span-1 h-20 bg-slate-200 rounded" />
+                        <div className="col-span-1 h-6 bg-slate-200 rounded" />
+                      </div>
+                    ))}
+                  </div>
+                </div>
               )}
               {cliente?.id && !loading && rows.length === 0 && view !== "status" && (
                 <div className="text-slate-500 text-sm">
@@ -838,6 +944,20 @@ function DashboardShell({
                   base={base}
                   rows={mergedRows}
                   onRefresh={() => loadCapturas({ silent: false })}
+                  onRefreshRow={async (row) => {
+                    if (!row?.centro_id || !cliente?.id) return;
+                    try {
+                      const q = new URLSearchParams();
+                      q.set("cliente_id", String(cliente.id));
+                      q.set("centro_id", String(row.centro_id));
+                      if (fecha) q.set("fecha", fecha);
+                      const r = await fetch(`${base}/api/capturas?${q.toString()}`, { cache: "no-store" });
+                      const list = await r.json();
+                      const updated = Array.isArray(list) && list.length ? list[0] : null;
+                      if (!updated) return;
+                      setRows((prev) => (prev || []).map((it) => (it.centro_id === updated.centro_id ? updated : it)));
+                    } catch {}
+                  }}
                   refreshStatus={loadStatus}
                   cacheBust={cacheBust}
                 />

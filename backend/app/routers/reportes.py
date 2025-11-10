@@ -132,7 +132,7 @@ async def reporte_pdf(
 
                 # ancho máximo del banner: 85% del ancho útil (entre márgenes)
                 banner_w_max = (right - left) * 0.85
-                banner_h_max = 3.0 * cm  # ya lo tienes, lo reutilizamos
+                banner_h_max = 3.0 * cm
 
                 # escala respetando ancho y alto máximos
                 scale = min(banner_w_max / float(iw), banner_h_max / float(ih))
@@ -142,19 +142,15 @@ async def reporte_pdf(
                 ibytes = io.BytesIO()
                 img.save(ibytes, format="JPEG", quality=92)
                 ibytes.seek(0)
-                # >>> AQUÍ define x según necesites <<<
-                # x = left                     # izquierda
-                # x = (W - draw_w) / 2      # centrado
-                # x = right - draw_w        # derecha
-                x = left + 7.8*cm           # ajuste fino
-                # posición: alineado a la izquierda, debajo del margen superior
-                banner_y = H - draw_h - 0.1 * cm   # sube/baja el banner cambiando este 0.5
+
+                # Posición (ajuste fino; si lo quieres centrado, usa x = (W - draw_w) / 2)
+                x = left + 7.8 * cm
+                banner_y = H - draw_h - 0.1 * cm
 
                 c.drawImage(ImageReader(ibytes), x, banner_y, width=draw_w, height=draw_h, mask='auto')
 
-                # deja el cursor de texto un poco debajo del banner
+                # cursor un poco debajo del banner
                 line = banner_y - 22
-
                 return
             except Exception:
                 pass
@@ -271,50 +267,77 @@ async def reporte_pdf(
     c.line(left, line, right, line)
     line -= 20   # más espacio que antes
 
-    # === Sección de imágenes ===
+    # === Sección de imágenes (corregido: nombre + imagen como bloque) ===
+    BOTTOM_MARGIN = 3 * cm
     c.setFont("Helvetica-Bold", 12)
     c.setFillColor(colors.black)
     c.drawString(left, line, "Imágenes")
     line -= 20
 
     max_img_w = right - left
-    for idx, r in enumerate(rows, start=1):
-        if line - 14 < 3 * cm:
+
+    def ensure_page_space(required_height: float, header_text: str | None = None):
+        """Si no hay espacio para 'required_height', crea nueva página y redibuja banner y header."""
+        nonlocal line
+        if line - required_height < BOTTOM_MARGIN:
             c.showPage()
             line = H - 2 * cm
             draw_banner()
-            c.setFont("Helvetica-Bold", 12)
-            c.drawString(left, line, "Imágenes (continúa)")
-            line -= 16
+            if header_text:
+                c.setFont("Helvetica-Bold", 12)
+                c.setFillColor(colors.black)
+                c.drawString(left, line, header_text)
+                line -= 16
 
-        c.setFont("Helvetica-Bold", 10)
-        c.drawString(left, line, f"Imagen #{idx} — {r['nombre']}")
-        line -= 12
+    def draw_image_block(idx: int, nombre: str, imagen_bytes: bytes | None):
+        """Dibuja (título + imagen) como bloque indivisible (o título + '(Sin imagen)')."""
+        nonlocal line
 
-        if r["imagen_bytes"]:
+        # Métricas del título
+        title_font = "Helvetica-Bold"
+        title_size = 10
+        c.setFont(title_font, title_size)
+        title_height = 12  # alto de renglón que ya usas
+
+        # Calcular alto de imagen si existe
+        draw_h = 0
+        ibytes = None
+        has_image = False
+        if imagen_bytes:
             try:
-                img = Image.open(io.BytesIO(r["imagen_bytes"])).convert("RGB")
+                img = Image.open(io.BytesIO(imagen_bytes)).convert("RGB")
                 iw, ih = img.size
                 scale = max_img_w / float(iw)
                 draw_w, draw_h = max_img_w, ih * scale
-                if line - (draw_h + 12) < 3 * cm:
-                    c.showPage()
-                    line = H - 2 * cm
-                    draw_banner()
-                    c.setFont("Helvetica-Bold", 10)
-                    c.drawString(left, line, f"Imagen #{idx} — {r['nombre']}")
-                    line -= 12
+
                 ibytes = io.BytesIO()
                 img.save(ibytes, format="JPEG", quality=90)
                 ibytes.seek(0)
-                c.drawImage(ImageReader(ibytes), left, line - draw_h, width=draw_w, height=draw_h, mask='auto')
-                line -= (draw_h + 12)
+                has_image = True
             except Exception:
-                c.setFont("Helvetica-Oblique", 9)
-                c.setFillColor(colors.grey)
-                c.drawString(left, line, "(No se pudo renderizar la imagen)")
-                c.setFillColor(colors.black)
-                line -= 12
+                has_image = False
+                draw_h = 0
+
+        # Alto total del bloque (título + imagen o texto sin imagen) + separaciones
+        if has_image:
+            required = title_height + 4 + draw_h + 12  # título + gap + imagen + gap inferior
+        else:
+            required = title_height + 4 + 12          # título + gap + "(Sin imagen)" (1 línea)
+
+        # Asegurar espacio antes de dibujar
+        ensure_page_space(required, header_text="")
+
+        # --- Dibujo real (ya sabemos que cabe) ---
+        # Título
+        c.setFont("Helvetica-Bold", 10)
+        c.setFillColor(colors.black)
+        c.drawString(left, line, f"Imagen #{idx} — {nombre}")
+        line -= (title_height + 4)
+
+        # Imagen o marcador
+        if has_image and ibytes:
+            c.drawImage(ImageReader(ibytes), left, line - draw_h, width=max_img_w, height=draw_h, mask='auto')
+            line -= (draw_h + 12)
         else:
             c.setFont("Helvetica-Oblique", 9)
             c.setFillColor(colors.grey)
@@ -322,7 +345,12 @@ async def reporte_pdf(
             c.setFillColor(colors.black)
             line -= 12
 
-        line -= 12  # más espacio entre imágenes
+        # espacio extra entre bloques
+        line -= 12
+
+    # Recorrido de filas (cada bloque nombre+imagen no se separa en salto de página)
+    for idx, r in enumerate(rows, start=1):
+        draw_image_block(idx, r["nombre"], r["imagen_bytes"])
 
     c.showPage()
     c.save()

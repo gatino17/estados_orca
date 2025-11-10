@@ -13,7 +13,7 @@ from app.routers import (
     metrics,
 )
 from app.routers import netio_status, netio_actions
-from app.jobs.scheduler import start_jobs
+from app.jobs.scheduler import start_jobs, stop_jobs
 import app.models
 from contextlib import suppress
 from app.db.session import get_db
@@ -26,8 +26,8 @@ app = FastAPI(title=settings.api_title)
 # 👇 Añade este bloque
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],        # en producción limita a tu dominio (ej. ["https://tusitio.com"])
-    allow_credentials=True,
+    allow_origins=(settings.allowed_origins or ["*"]),
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -45,8 +45,7 @@ app.include_router(netio_status.router)
 app.include_router(netio_actions.router)
 app.include_router(metrics.router)
 
-# Jobs (opcional)
-start_jobs()
+# Jobs: iniciar en startup, parar en shutdown
 
 async def _monitor_loop(threshold_sec: int = 70, interval_sec: int = 5):
     print(f"[monitor] iniciado (thr={threshold_sec}s, interval={interval_sec}s)", flush=True)
@@ -62,6 +61,9 @@ async def _monitor_loop(threshold_sec: int = 70, interval_sec: int = 5):
 
 @app.on_event("startup")
 async def _startup_monitor():
+    # iniciar scheduler
+    with suppress(Exception):
+        start_jobs()
     app.state.monitor_task = asyncio.create_task(_monitor_loop(threshold_sec=70, interval_sec=5))
 
 @app.on_event("shutdown")
@@ -72,3 +74,5 @@ async def _shutdown_monitor():
         with suppress(asyncio.CancelledError):
             await task
         print("[monitor] detenido", flush=True)
+    with suppress(Exception):
+        stop_jobs()

@@ -1,63 +1,23 @@
-# --- Logs ---
-logs/
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-lerna-debug.log*
-
-# --- Node / Vite (frontend) ---
-frontend/node_modules/
-frontend/dist/
-frontend/dist-ssr/
-frontend/*.local
-# si también tienes node en raíz:
-node_modules/
-dist/
-dist-ssr/
-*.local
-
-# --- Python (backend) ---
-backend/.venv/
-backend/venv/
-.venv/
-venv/
-backend/__pycache__/
-**/__pycache__/
+# Python
+__pycache__/
 *.py[cod]
 *.pyo
-*.pyd
-backend/.pytest_cache/
-backend/.mypy_cache/
-backend/.ruff_cache/
-backend/.coverage
-backend/coverage.xml
-backend/.DS_Store
+.venv/
+.pytest_cache/
+.coverage*
 
-# --- Alembic / Migrations ---
-# Normalmente SÍ conviene versionar migrations. NO ignores tu carpeta de migraciones.
-# Si tuvieras artefactos temporales, agrégalos aquí.
+# Node/Frontend
+frontend/captura-frontend/node_modules/
+frontend/captura-frontend/dist/
 
-# --- Environments (.env) ---
+# Env files (no subir secretos)
+env/
+*.env
 .env
-.env.*
-backend/.env
-frontend/.env
-!backend/.env.example
-!frontend/.env.example
 
-# --- IDE / OS ---
-.vscode/
-!.vscode/extensions.json
-.idea/
+# OS/editor
 .DS_Store
-Thumbs.db
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
+.idea/
+.vscode/
+*.log
 
-# --- Otros que no quieres subir ---
-# agrega aquí archivos temporales propios si aplican

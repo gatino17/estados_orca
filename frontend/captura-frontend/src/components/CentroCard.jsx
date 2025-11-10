@@ -8,8 +8,19 @@ export default function CentroCard({ base, row, selectedFecha }) {
   const [imgKey, setImgKey] = useState(Date.now());
 
   const hasImage = !!row.ultima_imagen_url;
-  const thumb = hasImage ? `${base}${row.ultima_imagen_url}?t=${imgKey}` : null;
-  const large = thumb;
+  const basePath = hasImage ? row.ultima_imagen_url.replace("/ultima/image", "/ultima/thumb") : null;
+  const thumb = hasImage ? `${base}${basePath}?max_w=640&t=${imgKey}` : null;
+  const large = hasImage ? `${base}${row.ultima_imagen_url}?t=${imgKey}` : null;
+
+  function thumbSrcSet() {
+    if (!hasImage) return undefined;
+    const qs = (w) => `?max_w=${w}&t=${imgKey}`;
+    return [
+      `${base}${basePath}${qs(480)} 480w`,
+      `${base}${basePath}${qs(640)} 640w`,
+      `${base}${basePath}${qs(720)} 720w`,
+    ].join(", ");
+  }
 
   async function getEstado(capturaId) {
     if (!capturaId) return null;
@@ -106,6 +117,11 @@ export default function CentroCard({ base, row, selectedFecha }) {
             // eslint-disable-next-line jsx-a11y/alt-text
             <img
               src={thumb}
+              srcSet={thumbSrcSet()}
+              sizes="(min-width:1024px) 320px, (min-width:640px) 320px, 100vw"
+              loading="lazy"
+              decoding="async"
+              fetchpriority="low"
               className="w-full h-36 object-cover rounded-lg border cursor-zoom-in"
               onClick={() => setOpen(true)}
             />

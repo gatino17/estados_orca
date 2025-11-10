@@ -14,7 +14,7 @@ from requests.auth import HTTPBasicAuth, HTTPDigestAuth
 # =======================
 # CONFIG (ENV VARS)
 # =======================
-SERVER = os.getenv("SERVER", "http://localhost:8000").rstrip("/")
+SERVER = os.getenv("SERVER", "http://204.48.22.217:5175").rstrip("/")
 UUID_EQUIPO = os.getenv("UUID_EQUIPO", "centro-pablo")
 
 # IDs: se resuelven dinámicamente al iniciar
@@ -31,7 +31,7 @@ SCREENSHOT_NAME = os.getenv("SCREENSHOT_NAME", "screenshot.jpg")
 SCREENSHOT_PATH = IMAGE_SAVE_DIR / SCREENSHOT_NAME
 
 CENTER_NAME = os.getenv("CENTER_NAME", "Centro Desconocido")
-CAPTURE_AT = os.getenv("CAPTURE_AT", "14:29")  # "HH:MM[,HH:MM...]"
+CAPTURE_AT = os.getenv("CAPTURE_AT", "13:21")  # "HH:MM[,HH:MM...]"
 
 TIMEZONE_LABEL = os.getenv("TZ", "America/Santiago")
 PULL_WAIT_SECONDS = int(os.getenv("PULL_WAIT_SECONDS", "20"))

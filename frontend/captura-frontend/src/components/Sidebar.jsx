@@ -12,6 +12,7 @@ function initials(value = "") {
 export default function Sidebar({
   base,
   onSelectCliente,
+  onHoverCliente,
   selectedClienteId,
   compact = false,
   onManageUsers,
@@ -45,7 +46,8 @@ export default function Sidebar({
   return (
     <aside
       className={[
-        "h-screen ring-1 ring-black/10",
+        // Fijo en pantalla y ocupando todo el alto del viewport
+        "h-[100dvh] md:sticky md:top-0 ring-1 ring-black/10",
         "bg-gradient-to-b from-blue-950 via-blue-900 to-indigo-800",
         "text-white flex flex-col",
       ].join(" ")}
@@ -81,6 +83,7 @@ export default function Sidebar({
               return (
                 <li key={cliente.id}>
                   <button
+                    onMouseEnter={() => onHoverCliente?.(cliente)}
                     onClick={() => onSelectCliente?.(cliente)}
                     className={[
                       "text-left px-3 py-2 hover:bg-white/10",
@@ -98,6 +101,7 @@ export default function Sidebar({
               <li key={cliente.id} className="flex justify-center">
                 <button
                   title={cliente.nombre || `Cliente ${cliente.id}`}
+                  onMouseEnter={() => onHoverCliente?.(cliente)}
                   onClick={() => onSelectCliente?.(cliente)}
                   className={[
                     "h-10 w-10 inline-flex items-center justify-center rounded-full",

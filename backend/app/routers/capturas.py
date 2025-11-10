@@ -1,5 +1,5 @@
-from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException, Query
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException, Query, Request
+from fastapi.responses import StreamingResponse, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc
 from datetime import date, datetime, timedelta, timezone
@@ -503,10 +503,63 @@ async def get_version_image(version_id: int, db: AsyncSession = Depends(get_db))
 
 
 # =========================
+# OBTENER MINIATURA OPTIMIZADA (con ETag/304)
+# =========================
+@router.get("/{captura_id}/ultima/thumb")
+async def get_ultima_thumb(
+    request: Request,
+    captura_id: int,
+    max_w: int = Query(480, ge=64, le=1920),
+    quality: int = Query(72, ge=40, le=95),
+    db: AsyncSession = Depends(get_db),
+):
+    v = (
+        await db.execute(
+            select(CapturaVersion)
+            .where(CapturaVersion.captura_id == captura_id)
+            .order_by(desc(CapturaVersion.tomada_en))
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if not v or not v.imagen_bytes:
+        raise HTTPException(status_code=404, detail="sin imagen")
+
+    # ETag basada en version-id + parámetros
+    etag = f"W/\"capv-{v.id}-w{max_w}-q{quality}\""
+    inm = request.headers.get("if-none-match")
+    if inm and inm == etag:
+        return Response(status_code=304)
+
+    try:
+        from PIL import Image
+        import io
+
+        img = Image.open(BytesIO(v.imagen_bytes)).convert("RGB")
+        w, h = img.size
+        if w > max_w:
+            scale = max_w / float(w)
+            img = img.resize((int(w * scale), int(h * scale)))
+        out = io.BytesIO()
+        img.save(out, format="WEBP", quality=quality, method=6)
+        data = out.getvalue()
+        media_type = "image/webp"
+    except Exception:
+        # fallback: devuelve bytes originales
+        data = v.imagen_bytes
+        media_type = v.content_type or "application/octet-stream"
+
+    headers = {
+        "Cache-Control": "public, max-age=300, stale-while-revalidate=120",
+        "ETag": etag,
+    }
+    return Response(content=data, media_type=media_type, headers=headers)
+
+
+# =========================
 # OBTENER ULTIMA IMAGEN DE UNA CAPTURA
 # =========================
 @router.get("/{captura_id}/ultima/image")
-async def get_ultima_image(captura_id: int, db: AsyncSession = Depends(get_db)):
+async def get_ultima_image(request: Request, captura_id: int, db: AsyncSession = Depends(get_db)):
     v = (
         await db.execute(
             select(CapturaVersion)
@@ -519,11 +572,18 @@ async def get_ultima_image(captura_id: int, db: AsyncSession = Depends(get_db)):
     if not v or not v.imagen_bytes:
         raise HTTPException(status_code=404, detail="sin imagen")
 
-    return StreamingResponse(
-        BytesIO(v.imagen_bytes),
-        media_type=v.content_type or "image/webp",
-        headers={"Cache-Control": "no-store, max-age=0"},
-    )
+    # ETag basada en version-id para permitir 304
+    etag = f"W/\"capv-{v.id}-full\""
+    inm = request.headers.get("if-none-match")
+    if inm and inm == etag:
+        return Response(status_code=304)
+
+    headers = {
+        # cache corto; los cambios de versión invalidan por ETag
+        "Cache-Control": "public, max-age=120, stale-while-revalidate=60",
+        "ETag": etag,
+    }
+    return Response(content=v.imagen_bytes, media_type=v.content_type or "image/webp", headers=headers)
 
 
 @router.patch("/{captura_id}")

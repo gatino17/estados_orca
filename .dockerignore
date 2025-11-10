@@ -1,0 +1,11 @@
+.git
+**/__pycache__
+**/*.pyc
+env/
+node_modules/
+frontend/captura-frontend/node_modules/
+frontend/captura-frontend/dist/
+*.rtf
+*.log
+.DS_Store
+

@@ -283,7 +283,7 @@ function NetioCell({ base, row }) {
       <div className="flex flex-wrap items-center gap-4">
         <div className="flex items-center gap-2">
           <ToggleSwitch
-            labelTop="PC"
+            labelTop="Laser"
             checked={!!states.pc}
             busy={busyKey === "pc"}
             disabled={disabledCommon}
@@ -302,7 +302,7 @@ function NetioCell({ base, row }) {
 
         <div className="flex items-center gap-2">
           <ToggleSwitch
-            labelTop="Camaras"
+            labelTop="Nvr"
             checked={!!states.cams}
             busy={busyKey === "cams"}
             disabled={disabledCommon}
@@ -321,7 +321,7 @@ function NetioCell({ base, row }) {
 
         <div className="flex items-center gap-2">
           <ToggleSwitch
-            labelTop="Equipo 3"
+            labelTop="Radar"
             checked={!!states.eq3}
             busy={busyKey === "eq3"}
             disabled={disabledCommon}

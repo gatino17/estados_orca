@@ -4,7 +4,7 @@ from pytz import timezone
 from app.core.config import settings
 
 
-scheduler = AsyncIOScheduler(timezone=timezone(settings.tz))
+_scheduler: AsyncIOScheduler | None = None
 
 
 async def disparar_capturas_08():
@@ -14,5 +14,19 @@ async def disparar_capturas_08():
 
 
 def start_jobs():
-    scheduler.add_job(disparar_capturas_08, CronTrigger(hour=8, minute=0))
-    scheduler.start()
+    global _scheduler
+    if _scheduler is None:
+        _scheduler = AsyncIOScheduler(timezone=timezone(settings.tz))
+        _scheduler.add_job(disparar_capturas_08, CronTrigger(hour=8, minute=0))
+        _scheduler.start()
+        print("[jobs] scheduler started", flush=True)
+
+
+def stop_jobs():
+    global _scheduler
+    if _scheduler is not None:
+        try:
+            _scheduler.shutdown(wait=False)
+            print("[jobs] scheduler stopped", flush=True)
+        finally:
+            _scheduler = None
