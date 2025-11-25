@@ -1,4 +1,4 @@
-﻿# routers/reportes.py
+# routers/reportes.py
 from fastapi import APIRouter, Depends, Query, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -159,11 +159,11 @@ async def reporte_pdf(
 
                 iw, ih = img.size
 
-                # ancho mÃ¡ximo del banner: 85% del ancho Ãºtil (entre mÃ¡rgenes)
+                # ancho mAximo del banner: 85% del ancho Aotil (entre mArgenes)
                 banner_w_max = (right - left) * 0.85
                 banner_h_max = 3.0 * cm
 
-                # escala respetando ancho y alto mÃ¡ximos
+                # escala respetando ancho y alto mAximos
                 scale = min(banner_w_max / float(iw), banner_h_max / float(ih))
                 draw_w = iw * scale
                 draw_h = ih * scale
@@ -172,7 +172,7 @@ async def reporte_pdf(
                 img.save(ibytes, format="JPEG", quality=92)
                 ibytes.seek(0)
 
-                # PosiciÃ³n (ajuste fino; si lo quieres centrado, usa x = (W - draw_w) / 2)
+                # PosiciA3n (ajuste fino; si lo quieres centrado, usa x = (W - draw_w) / 2)
                 x = left + 7.8 * cm
                 banner_y = H - draw_h - 0.1 * cm
 
@@ -200,7 +200,7 @@ async def reporte_pdf(
         c.drawString(1.5 * cm, H - 2.1 * cm, (brand or "ORCA TECNOLOGIA"))
         line = H - grad_h - 1 * cm - 22
 
-    # Dibuja el banner en la primera pÃ¡gina
+    # Dibuja el banner en la primera pAgina
     draw_banner()
 
     # Encabezado textual
@@ -230,7 +230,7 @@ async def reporte_pdf(
     line -= 14
 
     c.setFont("Helvetica", 10)
-    c.drawString(left, line, f"Totales â€” Centros: {total_centros} | Con imagen: {con_imagen} | Sin imagen: {sin_imagen}")
+    c.drawString(left, line, f"Totales  Centros: {total_centros} | Con imagen: {con_imagen} | Sin imagen: {sin_imagen}")
     line -= 10
     c.setStrokeColor(colors.lightgrey)
     c.line(left, line, right, line)
@@ -246,10 +246,10 @@ async def reporte_pdf(
         c.rect(left, line - 14, col_end - left, 16, stroke=0, fill=1)
         c.setFillColor(colors.white)
         c.setFont("Helvetica-Bold", 10)
-        c.drawString(colN + 2, line - 11, "NÂ°")
+        c.drawString(colN + 2, line - 11, "N")
         c.drawString(colNombre, line - 11, "Nombre")
-        c.drawString(colObs, line - 11, "ObservaciÃ³n")
-        c.drawString(colGrab, line - 11, "GrabaciÃ³n")
+        c.drawString(colObs, line - 11, "Observacion")
+        c.drawString(colGrab, line - 11, "Grabacion")
         line -= 18
 
     table_header()
@@ -268,7 +268,7 @@ async def reporte_pdf(
             draw_banner()
             c.setFont("Helvetica-Bold", 12)
             c.setFillColor(colors.black)
-            c.drawString(left, line, "Resumen (continÃºa)")
+            c.drawString(left, line, "Resumen (continua)")
             line -= 16
             table_header()
             c.setFont("Helvetica", 9)
@@ -294,19 +294,19 @@ async def reporte_pdf(
 
     c.setStrokeColor(colors.lightgrey)
     c.line(left, line, right, line)
-    line -= 20   # mÃ¡s espacio que antes
+    line -= 20   # mAs espacio que antes
 
-    # === SecciÃ³n de imÃ¡genes (corregido: nombre + imagen como bloque) ===
+    # === SecciA3n de imAgenes (corregido: nombre + imagen como bloque) ===
     BOTTOM_MARGIN = 3 * cm
     c.setFont("Helvetica-Bold", 12)
     c.setFillColor(colors.black)
-    c.drawString(left, line, "ImÃ¡genes")
+    c.drawString(left, line, "Imagenes")
     line -= 20
 
     max_img_w = right - left
 
     def ensure_page_space(required_height: float, header_text: str | None = None):
-        """Si no hay espacio para 'required_height', crea nueva pÃ¡gina y redibuja banner y header."""
+        """Si no hay espacio para 'required_height', crea nueva pAgina y redibuja banner y header."""
         nonlocal line
         if line - required_height < BOTTOM_MARGIN:
             c.showPage()
@@ -319,14 +319,14 @@ async def reporte_pdf(
                 line -= 16
 
     def draw_image_block(idx: int, nombre: str, imagen_bytes: bytes | None):
-        """Dibuja (tÃ­tulo + imagen) como bloque indivisible (o tÃ­tulo + '(Sin imagen)')."""
+        """Dibuja (titulo + imagen) como bloque indivisible (o titulo + '(Sin imagen)')."""
         nonlocal line
 
-        # MÃ©tricas del tÃ­tulo
+        # MAtricas del tAtulo
         title_font = "Helvetica-Bold"
         title_size = 10
         c.setFont(title_font, title_size)
-        title_height = 12  # alto de renglÃ³n que ya usas
+        title_height = 12  # alto de renglA3n que ya usas
 
         # Calcular alto de imagen si existe
         draw_h = 0
@@ -347,20 +347,20 @@ async def reporte_pdf(
                 has_image = False
                 draw_h = 0
 
-        # Alto total del bloque (tÃ­tulo + imagen o texto sin imagen) + separaciones
+        # Alto total del bloque (tAtulo + imagen o texto sin imagen) + separaciones
         if has_image:
-            required = title_height + 4 + draw_h + 12  # tÃ­tulo + gap + imagen + gap inferior
+            required = title_height + 4 + draw_h + 12  # titulo + gap + imagen + gap inferior
         else:
-            required = title_height + 4 + 12          # tÃ­tulo + gap + "(Sin imagen)" (1 lÃ­nea)
+            required = title_height + 4 + 12          # titulo + gap + "(Sin imagen)" (1 linea)
 
         # Asegurar espacio antes de dibujar
         ensure_page_space(required, header_text="")
 
         # --- Dibujo real (ya sabemos que cabe) ---
-        # TÃ­tulo
+        # Titulo
         c.setFont("Helvetica-Bold", 10)
         c.setFillColor(colors.black)
-        c.drawString(left, line, f"Imagen #{idx} â€” {nombre}")
+        c.drawString(left, line, f"Imagen #{idx}  {nombre}")
         line -= (title_height + 4)
 
         # Imagen o marcador
@@ -377,7 +377,7 @@ async def reporte_pdf(
         # espacio extra entre bloques
         line -= 12
 
-    # Recorrido de filas (cada bloque nombre+imagen no se separa en salto de pÃ¡gina)
+    # Recorrido de filas (cada bloque nombre+imagen no se separa en salto de pAgina)
     for idx, r in enumerate(rows, start=1):
         draw_image_block(idx, r["nombre"], r["imagen_bytes"])
 
@@ -395,4 +395,6 @@ async def reporte_pdf(
             "Cache-Control": "no-store",
         },
     )
+
+
 
