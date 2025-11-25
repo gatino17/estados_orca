@@ -1,8 +1,8 @@
-# routers/reportes.py
+﻿# routers/reportes.py
 from fastapi import APIRouter, Depends, Query, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, desc
+from sqlalchemy import select, desc, func, and_
 from datetime import date, datetime, timezone
 from zoneinfo import ZoneInfo
 from reportlab.lib.pagesizes import A4
@@ -38,7 +38,7 @@ async def reporte_pdf(
     fecha: date = Query(...),
     logo_url: str | None = Query(None, description="URL http(s) del banner corporativo (opcional)"),
     logo_path: str = str(Path(__file__).resolve().parent.parent / "static" / "banner.png"),
-    brand: str | None = Query("ORCA TECNOLOGÍA"),
+    brand: str | None = Query("ORCA TECNOLOGIA"),
     tz: str | None = Query("America/Santiago"),
     db: AsyncSession = Depends(get_db),
 ):
@@ -49,46 +49,75 @@ async def reporte_pdf(
     if not cliente_nombre:
         raise HTTPException(status_code=404, detail="Cliente no encontrado")
 
-    # === Centros/Capturas del día ===
-    q_centros = select(Centro).where(Centro.cliente_id == cliente_id).order_by(Centro.nombre.asc())
-    centros = (await db.execute(q_centros)).scalars().all()
+    # === Centros/Capturas del dia (sin N+1) ===
+    cap_sq = (
+        select(
+            Captura.id.label("cap_id"),
+            Captura.centro_id.label("cap_centro_id"),
+            Captura.estado.label("cap_estado"),
+            Captura.observacion.label("cap_observacion"),
+            Captura.grabacion.label("cap_grabacion"),
+            func.row_number().over(partition_by=Captura.centro_id, order_by=Captura.created_at.desc()).label("rn"),
+        )
+        .where(Captura.fecha_reporte == fecha)
+    ).subquery()
+
+    ver_sq = (
+        select(
+            CapturaVersion.id.label("ver_id"),
+            CapturaVersion.captura_id.label("ver_captura_id"),
+            CapturaVersion.tomada_en.label("ver_tomada_en"),
+            CapturaVersion.imagen_bytes.label("ver_bytes"),
+            CapturaVersion.content_type.label("ver_content_type"),
+            func.row_number().over(partition_by=CapturaVersion.captura_id, order_by=CapturaVersion.tomada_en.desc()).label("rn"),
+        )
+    ).subquery()
+
+    q = (
+        select(
+            Centro.id.label("centro_id"),
+            Centro.nombre.label("centro_nombre"),
+            Centro.uuid_equipo.label("uuid_equipo"),
+            Centro.last_seen.label("last_seen"),
+            Centro.observacion.label("centro_observacion"),
+            Centro.grabacion.label("centro_grabacion"),
+            cap_sq.c.cap_id,
+            cap_sq.c.cap_estado,
+            cap_sq.c.cap_observacion,
+            cap_sq.c.cap_grabacion,
+            ver_sq.c.ver_id,
+            ver_sq.c.ver_bytes,
+            ver_sq.c.ver_content_type,
+        )
+        .join(cap_sq, and_(cap_sq.c.cap_centro_id == Centro.id, cap_sq.c.rn == 1), isouter=True)
+        .join(ver_sq, and_(ver_sq.c.ver_captura_id == cap_sq.c.cap_id, ver_sq.c.rn == 1), isouter=True)
+        .where(Centro.cliente_id == cliente_id)
+        .order_by(Centro.nombre.asc())
+    )
+
+    rows_db = (await db.execute(q)).mappings().all()
 
     rows, con_imagen = [], 0
-    for cen in centros:
-        cap = (await db.execute(
-            select(Captura)
-            .where(Captura.centro_id == cen.id, Captura.fecha_reporte == fecha)
-            .order_by(desc(Captura.created_at))
-            .limit(1)
-        )).scalar_one_or_none()
-
-        estado, version = "sin_reporte", None
-        obs, grab = cen.observacion or "", cen.grabacion or ""
-        if cap:
-            estado = cap.estado or "pendiente"
-            if getattr(cap, "observacion", None) not in (None, ""):
-                obs = cap.observacion
-            if getattr(cap, "grabacion", None) not in (None, ""):
-                grab = cap.grabacion
-            version = (await db.execute(
-                select(CapturaVersion)
-                .where(CapturaVersion.captura_id == cap.id)
-                .order_by(desc(CapturaVersion.tomada_en))
-                .limit(1)
-            )).scalar_one_or_none()
-
-        if version and version.imagen_bytes:
+    for r in rows_db:
+        obs = r["cap_observacion"] if r["cap_observacion"] not in (None, "") else r["centro_observacion"] or ""
+        grab = r["cap_grabacion"] if r["cap_grabacion"] not in (None, "") else r["centro_grabacion"] or ""
+        if r["cap_id"]:
+            estado = r["cap_estado"] or "pendiente"
+        else:
+            estado = "sin_reporte"
+        img_bytes = r["ver_bytes"]
+        if img_bytes:
             con_imagen += 1
 
         rows.append({
-            "nombre": cen.nombre or f"Centro {cen.id}",
-            "uuid": cen.uuid_equipo,
-            "last_seen": cen.last_seen.isoformat() if cen.last_seen else None,
+            "nombre": r["centro_nombre"] or f"Centro {r['centro_id']}",
+            "uuid": r["uuid_equipo"],
+            "last_seen": r["last_seen"].isoformat() if r["last_seen"] else None,
             "estado": estado,
             "observacion": obs,
             "grabacion": grab,
-            "imagen_bytes": version.imagen_bytes if (version and version.imagen_bytes) else None,
-            "content_type": version.content_type if version else None,
+            "imagen_bytes": img_bytes,
+            "content_type": r["ver_content_type"],
         })
 
     if not rows:
@@ -130,11 +159,11 @@ async def reporte_pdf(
 
                 iw, ih = img.size
 
-                # ancho máximo del banner: 85% del ancho útil (entre márgenes)
+                # ancho mÃ¡ximo del banner: 85% del ancho Ãºtil (entre mÃ¡rgenes)
                 banner_w_max = (right - left) * 0.85
                 banner_h_max = 3.0 * cm
 
-                # escala respetando ancho y alto máximos
+                # escala respetando ancho y alto mÃ¡ximos
                 scale = min(banner_w_max / float(iw), banner_h_max / float(ih))
                 draw_w = iw * scale
                 draw_h = ih * scale
@@ -143,7 +172,7 @@ async def reporte_pdf(
                 img.save(ibytes, format="JPEG", quality=92)
                 ibytes.seek(0)
 
-                # Posición (ajuste fino; si lo quieres centrado, usa x = (W - draw_w) / 2)
+                # PosiciÃ³n (ajuste fino; si lo quieres centrado, usa x = (W - draw_w) / 2)
                 x = left + 7.8 * cm
                 banner_y = H - draw_h - 0.1 * cm
 
@@ -168,10 +197,10 @@ async def reporte_pdf(
 
         c.setFont("Helvetica-Bold", 18)
         c.setFillColor(colors.white)
-        c.drawString(1.5 * cm, H - 2.1 * cm, (brand or "ORCA TECNOLOGÍA"))
+        c.drawString(1.5 * cm, H - 2.1 * cm, (brand or "ORCA TECNOLOGIA"))
         line = H - grad_h - 1 * cm - 22
 
-    # Dibuja el banner en la primera página
+    # Dibuja el banner en la primera pÃ¡gina
     draw_banner()
 
     # Encabezado textual
@@ -201,7 +230,7 @@ async def reporte_pdf(
     line -= 14
 
     c.setFont("Helvetica", 10)
-    c.drawString(left, line, f"Totales — Centros: {total_centros} | Con imagen: {con_imagen} | Sin imagen: {sin_imagen}")
+    c.drawString(left, line, f"Totales â€” Centros: {total_centros} | Con imagen: {con_imagen} | Sin imagen: {sin_imagen}")
     line -= 10
     c.setStrokeColor(colors.lightgrey)
     c.line(left, line, right, line)
@@ -217,10 +246,10 @@ async def reporte_pdf(
         c.rect(left, line - 14, col_end - left, 16, stroke=0, fill=1)
         c.setFillColor(colors.white)
         c.setFont("Helvetica-Bold", 10)
-        c.drawString(colN + 2, line - 11, "N°")
+        c.drawString(colN + 2, line - 11, "NÂ°")
         c.drawString(colNombre, line - 11, "Nombre")
-        c.drawString(colObs, line - 11, "Observación")
-        c.drawString(colGrab, line - 11, "Grabación")
+        c.drawString(colObs, line - 11, "ObservaciÃ³n")
+        c.drawString(colGrab, line - 11, "GrabaciÃ³n")
         line -= 18
 
     table_header()
@@ -239,7 +268,7 @@ async def reporte_pdf(
             draw_banner()
             c.setFont("Helvetica-Bold", 12)
             c.setFillColor(colors.black)
-            c.drawString(left, line, "Resumen (continúa)")
+            c.drawString(left, line, "Resumen (continÃºa)")
             line -= 16
             table_header()
             c.setFont("Helvetica", 9)
@@ -265,19 +294,19 @@ async def reporte_pdf(
 
     c.setStrokeColor(colors.lightgrey)
     c.line(left, line, right, line)
-    line -= 20   # más espacio que antes
+    line -= 20   # mÃ¡s espacio que antes
 
-    # === Sección de imágenes (corregido: nombre + imagen como bloque) ===
+    # === SecciÃ³n de imÃ¡genes (corregido: nombre + imagen como bloque) ===
     BOTTOM_MARGIN = 3 * cm
     c.setFont("Helvetica-Bold", 12)
     c.setFillColor(colors.black)
-    c.drawString(left, line, "Imágenes")
+    c.drawString(left, line, "ImÃ¡genes")
     line -= 20
 
     max_img_w = right - left
 
     def ensure_page_space(required_height: float, header_text: str | None = None):
-        """Si no hay espacio para 'required_height', crea nueva página y redibuja banner y header."""
+        """Si no hay espacio para 'required_height', crea nueva pÃ¡gina y redibuja banner y header."""
         nonlocal line
         if line - required_height < BOTTOM_MARGIN:
             c.showPage()
@@ -290,14 +319,14 @@ async def reporte_pdf(
                 line -= 16
 
     def draw_image_block(idx: int, nombre: str, imagen_bytes: bytes | None):
-        """Dibuja (título + imagen) como bloque indivisible (o título + '(Sin imagen)')."""
+        """Dibuja (tÃ­tulo + imagen) como bloque indivisible (o tÃ­tulo + '(Sin imagen)')."""
         nonlocal line
 
-        # Métricas del título
+        # MÃ©tricas del tÃ­tulo
         title_font = "Helvetica-Bold"
         title_size = 10
         c.setFont(title_font, title_size)
-        title_height = 12  # alto de renglón que ya usas
+        title_height = 12  # alto de renglÃ³n que ya usas
 
         # Calcular alto de imagen si existe
         draw_h = 0
@@ -318,20 +347,20 @@ async def reporte_pdf(
                 has_image = False
                 draw_h = 0
 
-        # Alto total del bloque (título + imagen o texto sin imagen) + separaciones
+        # Alto total del bloque (tÃ­tulo + imagen o texto sin imagen) + separaciones
         if has_image:
-            required = title_height + 4 + draw_h + 12  # título + gap + imagen + gap inferior
+            required = title_height + 4 + draw_h + 12  # tÃ­tulo + gap + imagen + gap inferior
         else:
-            required = title_height + 4 + 12          # título + gap + "(Sin imagen)" (1 línea)
+            required = title_height + 4 + 12          # tÃ­tulo + gap + "(Sin imagen)" (1 lÃ­nea)
 
         # Asegurar espacio antes de dibujar
         ensure_page_space(required, header_text="")
 
         # --- Dibujo real (ya sabemos que cabe) ---
-        # Título
+        # TÃ­tulo
         c.setFont("Helvetica-Bold", 10)
         c.setFillColor(colors.black)
-        c.drawString(left, line, f"Imagen #{idx} — {nombre}")
+        c.drawString(left, line, f"Imagen #{idx} â€” {nombre}")
         line -= (title_height + 4)
 
         # Imagen o marcador
@@ -348,7 +377,7 @@ async def reporte_pdf(
         # espacio extra entre bloques
         line -= 12
 
-    # Recorrido de filas (cada bloque nombre+imagen no se separa en salto de página)
+    # Recorrido de filas (cada bloque nombre+imagen no se separa en salto de pÃ¡gina)
     for idx, r in enumerate(rows, start=1):
         draw_image_block(idx, r["nombre"], r["imagen_bytes"])
 
@@ -366,3 +395,4 @@ async def reporte_pdf(
             "Cache-Control": "no-store",
         },
     )
+

@@ -1,7 +1,7 @@
-from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException, Query, Request
+﻿from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse, Response
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, desc
+from sqlalchemy import select, desc, func, and_, or_
 from datetime import date, datetime, timedelta, timezone
 from io import BytesIO
 
@@ -49,7 +49,7 @@ async def upload_captura(
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
 ):
-    # 👉 LOG de depuración para confirmar qué llegó
+    # ­ƒæë LOG de depuraci├│n para confirmar qu├® lleg├│
     print(f"[upload] form: uuid={uuid_equipo!r} cliente_id={cliente_id} centro_id={centro_id} disp_id={dispositivo_id} fecha={fecha_reporte} origen={origen}", flush=True)
 
     # 0) Resolver por UUID si viene
@@ -60,7 +60,7 @@ async def upload_captura(
         if not cen:
             raise HTTPException(status_code=404, detail="centro no encontrado para uuid_equipo")
 
-        # Consistencia si además mandaron IDs
+        # Consistencia si adem├ís mandaron IDs
         if cliente_id and cliente_id != cen.cliente_id:
             raise HTTPException(status_code=400, detail="cliente_id no coincide con uuid_equipo")
         if centro_id and centro_id != cen.id:
@@ -95,14 +95,14 @@ async def upload_captura(
     if not uuid_equipo and not all([cliente_id, centro_id, dispositivo_id]):
         raise HTTPException(
             status_code=400,
-            detail="Faltan identificadores: envía uuid_equipo o los campos cliente_id, centro_id, dispositivo_id."
+            detail="Faltan identificadores: env├¡a uuid_equipo o los campos cliente_id, centro_id, dispositivo_id."
         )
 
-    # 2) Leer/convertir imagen (igual que tenías) …
+    # 2) Leer/convertir imagen (igual que ten├¡as) ÔÇª
     raw = await file.read()
     bytes_, ctype, w, h, size = to_webp_bytes(raw)
 
-    # 3) Buscar si ya existe captura del día (usa dispositivo_id que puede ser NULL y no rompe)
+    # 3) Buscar si ya existe captura del d├¡a (usa dispositivo_id que puede ser NULL y no rompe)
     captura = (
         await db.execute(
             select(Captura).where(
@@ -117,7 +117,7 @@ async def upload_captura(
         captura = Captura(
             cliente_id=cliente_id,
             centro_id=centro_id,
-            dispositivo_id=dispositivo_id,  # <- puede ser None, y está permitido en tu modelo
+            dispositivo_id=dispositivo_id,  # <- puede ser None, y est├í permitido en tu modelo
             fecha_reporte=fecha_reporte,
             estado="pendiente",
         )
@@ -174,7 +174,7 @@ async def crear_captura_vacia(
     payload: CapturaCreate,
     db: AsyncSession = Depends(get_db),
 ):
-    # ¿ya existe una captura para esa combinación y fecha?
+    # ┬┐ya existe una captura para esa combinaci├│n y fecha?
     cap = (
         await db.execute(
             select(Captura).where(
@@ -249,7 +249,7 @@ async def retomar_captura(
         await db.flush()
 
     # 3) Crear orden apuntando a la captura de esa fecha
-# ⚠️ NUEVO: traer uuid_equipo desde el centro de esta captura
+# ÔÜá´©Å NUEVO: traer uuid_equipo desde el centro de esta captura
     uuid_equipo = (
         await db.execute(
             select(Centro.uuid_equipo).where(Centro.id == same.centro_id)
@@ -260,7 +260,7 @@ async def retomar_captura(
     orden = OrdenCaptura(
         captura_id=same.id,
         estado="pendiente",
-        uuid_equipo=uuid_equipo  # 👈 clave para direccionar al agente correcto
+        uuid_equipo=uuid_equipo  # ­ƒæê clave para direccionar al agente correcto
           )
     db.add(orden)
 
@@ -281,7 +281,7 @@ async def retomar_captura(
 async def retomar_por_centro(
     centro_id: int,
     fecha: date | None = Query(None, description="Fecha objetivo YYYY-MM-DD"),
-    dispositivo_id: int | None = Query(None, description="Si no se envía, usa el último dispositivo usado por el centro o 1"),
+    dispositivo_id: int | None = Query(None, description="Si no se env├¡a, usa el ├║ltimo dispositivo usado por el centro o 1"),
     db: AsyncSession = Depends(get_db),
 ):
     # 1) Centro existe
@@ -303,7 +303,7 @@ async def retomar_por_centro(
         ).first()
         dispositivo_id = (last_cap[0] if last_cap and last_cap[0] else None)
 
-    # ✅ si tenemos un id, verifica que exista realmente en dispositivos
+    # Ô£à si tenemos un id, verifica que exista realmente en dispositivos
     if dispositivo_id is not None:
         from app.models.dispositivos import Dispositivo
         exists = (
@@ -312,9 +312,9 @@ async def retomar_por_centro(
             )
         ).scalar_one_or_none()
         if not exists:
-            dispositivo_id = None  # ← no existe, deja NULL
+            dispositivo_id = None  # ÔåÉ no existe, deja NULL
 
-    # 3) Buscar/crear la captura del día para ese centro+dispositivo
+    # 3) Buscar/crear la captura del d├¡a para ese centro+dispositivo
     cap = (
         await db.execute(
             select(Captura).where(
@@ -341,7 +341,7 @@ async def retomar_por_centro(
     orden = OrdenCaptura(
         captura_id=cap.id,
         estado="pendiente",
-        uuid_equipo=cen.uuid_equipo # 👈 usa el del centro
+        uuid_equipo=cen.uuid_equipo # ­ƒæê usa el del centro
                         )
     db.add(orden)
 
@@ -357,102 +357,147 @@ async def retomar_por_centro(
 
 
 # =========================
-# LISTAR CAPTURAS
+# LISTAR CAPTURAS (paginado y sin N+1)
 # =========================
 @router.get("")
 async def listar_capturas(
-    cliente_id: int | None = None,
-    centro_id: int | None = None,
-    fecha: date | None = None,
+    cliente_id: int | None = Query(None),
+    centro_id: int | None = Query(None),
+    fecha: date | None = Query(None, description="Fecha objetivo YYYY-MM-DD"),
+    page: int = Query(1, ge=1, description="Pagina (1-indexada)"),
+    page_size: int = Query(15, ge=1, le=100, description="Filas por pagina"),
+    estado: str | None = Query(None, description="Filtrar por estado exacto (case-insensitive)"),
+    online: bool | None = Query(None, description="Filtrar por estado online calculado"),
+    threshold_sec: int = Query(50, ge=5, le=3600, description="Umbral de online en segundos"),
     db: AsyncSession = Depends(get_db),
 ):
+    """
+    Devuelve filas paginadas (una por centro) con la ultima captura del dia y su ultima version.
+    Incluye online/last_seen calculado en el backend para evitar N+1 y doble polling en el front.
+    """
     if not cliente_id:
-        return []
-
-    # 1) Todos los centros del cliente (y opcional filtro por centro)
-    q_centros = select(Centro).where(Centro.cliente_id == cliente_id)
-    if centro_id:
-        q_centros = q_centros.where(Centro.id == centro_id)
-
-    res_centros = await db.execute(q_centros.order_by(Centro.nombre.asc()))
-    centros = res_centros.scalars().all()
+        return {"items": [], "total": 0, "page": page, "page_size": page_size, "total_pages": 0}
 
     target = fecha or date.today()
     now = datetime.now(timezone.utc)
-    ONLINE_THRESHOLD = timedelta(seconds=50)
+    ONLINE_THRESHOLD = timedelta(seconds=threshold_sec)
 
-    out = []
+    cap_sq = (
+        select(
+            Captura.id.label("cap_id"),
+            Captura.centro_id.label("cap_centro_id"),
+            Captura.dispositivo_id.label("cap_dispositivo_id"),
+            Captura.estado.label("cap_estado"),
+            Captura.observacion.label("cap_observacion"),
+            Captura.grabacion.label("cap_grabacion"),
+            Captura.fecha_reporte.label("cap_fecha"),
+            func.row_number()
+            .over(partition_by=Captura.centro_id, order_by=Captura.created_at.desc())
+            .label("rn"),
+        )
+        .where(Captura.fecha_reporte == target)
+    ).subquery()
 
-    # 2) Para cada centro, buscar la captura del día (si existe)
-    for cen in centros:
-        cap = (
-            await db.execute(
-                select(Captura)
-                .where(
-                    Captura.centro_id == cen.id,
-                    Captura.fecha_reporte == target
-                )
-                .order_by(desc(Captura.created_at))
-                .limit(1)
-            )
-        ).scalar_one_or_none()
+    ver_sq = (
+        select(
+            CapturaVersion.id.label("ver_id"),
+            CapturaVersion.captura_id.label("ver_captura_id"),
+            CapturaVersion.tomada_en.label("ver_tomada_en"),
+            func.row_number()
+            .over(partition_by=CapturaVersion.captura_id, order_by=CapturaVersion.tomada_en.desc())
+            .label("rn"),
+        )
+    ).subquery()
 
-        captura_id = None
-        dispositivo_id = None
-        estado = "sin_reporte"
-        ultima_url = None
+    base = (
+        select(
+            Centro.id.label("centro_id"),
+            Centro.cliente_id.label("cliente_id"),
+            Centro.nombre.label("centro_nombre"),
+            Centro.uuid_equipo.label("uuid_equipo"),
+            Centro.observacion.label("centro_observacion"),
+            Centro.grabacion.label("centro_grabacion"),
+            Centro.last_seen.label("last_seen"),
+            cap_sq.c.cap_id,
+            cap_sq.c.cap_dispositivo_id,
+            cap_sq.c.cap_estado,
+            cap_sq.c.cap_observacion,
+            cap_sq.c.cap_grabacion,
+            cap_sq.c.cap_fecha,
+            ver_sq.c.ver_id,
+            ver_sq.c.ver_tomada_en,
+        )
+        .join(cap_sq, and_(cap_sq.c.cap_centro_id == Centro.id, cap_sq.c.rn == 1), isouter=True)
+        .join(ver_sq, and_(ver_sq.c.ver_captura_id == cap_sq.c.cap_id, ver_sq.c.rn == 1), isouter=True)
+        .where(Centro.cliente_id == cliente_id)
+    )
 
-        # obs/grab: tomar de CAPTURA si existen, si no, de CENTRO
-        obs = cen.observacion
-        grab = cen.grabacion
+    if centro_id:
+        base = base.where(Centro.id == centro_id)
 
-        if cap:
-            captura_id = cap.id
-            dispositivo_id = cap.dispositivo_id
-            estado = cap.estado or "pendiente"
+    if estado:
+        base = base.where(func.lower(cap_sq.c.cap_estado) == estado.lower())
 
-            if getattr(cap, "observacion", None) not in (None, ""):
-                obs = cap.observacion
-            if getattr(cap, "grabacion", None) not in (None, ""):
-                grab = cap.grabacion
+    if online is not None:
+        limit_dt = now - ONLINE_THRESHOLD
+        if online:
+            base = base.where(and_(Centro.last_seen.is_not(None), Centro.last_seen >= limit_dt))
+        else:
+            base = base.where(or_(Centro.last_seen.is_(None), Centro.last_seen < limit_dt))
 
-            v = (
-                await db.execute(
-                    select(CapturaVersion.id)
-                    .where(CapturaVersion.captura_id == cap.id)
-                    .order_by(desc(CapturaVersion.tomada_en))
-                    .limit(1)
-                )
-            ).scalar_one_or_none()
-            if v:
-                ultima_url = f"/api/capturas/{cap.id}/ultima/image"
+    total_res = await db.execute(select(func.count()).select_from(base.subquery()))
+    total = int(total_res.scalar_one() or 0)
 
-        # NUEVO: calcular last_seen + online
-        last_seen_dt = getattr(cen, "last_seen", None)
-        last_seen_iso = last_seen_dt.isoformat() if last_seen_dt else None        
-        online = bool(last_seen_dt and (now - last_seen_dt) <= ONLINE_THRESHOLD)
+    offset = max(0, (page - 1) * page_size)
 
-        if last_seen_dt:
-            # 👇 solo depuración
-            print(f"[listar] {cen.uuid_equipo} last_seen={last_seen_dt} now={now} delta={(now - last_seen_dt).total_seconds():.1f}s online={online}", flush=True)
+    rows = (
+        await db.execute(
+            base.order_by(Centro.nombre.asc(), Centro.id.asc()).offset(offset).limit(page_size)
+        )
+    ).mappings().all()
 
-        out.append({
-            "id": captura_id,                 # None si no hay captura aún
-            "cliente_id": cen.cliente_id,
-            "centro_id": cen.id,
-            "nombre": cen.nombre,
-            "uuid_equipo": getattr(cen, "uuid_equipo", None),
-            "last_seen": last_seen_iso,       # 👈 NUEVO
-            "online": online,                 # 👈 NUEVO (true/false)
+    items = []
+    for r in rows:
+        last_seen_dt = r["last_seen"]
+        online_flag = bool(last_seen_dt and (now - last_seen_dt) <= ONLINE_THRESHOLD)
+        obs = r["cap_observacion"] if r["cap_observacion"] not in (None, "") else r["centro_observacion"]
+        grab = r["cap_grabacion"] if r["cap_grabacion"] not in (None, "") else r["centro_grabacion"]
+        cap_id = r["cap_id"]
+        ver_id = r["ver_id"]
+
+        if cap_id:
+            estado_val = r["cap_estado"] or "pendiente"
+            fecha_val = r["cap_fecha"] or target
+        else:
+            estado_val = "sin_reporte"
+            fecha_val = target
+
+        items.append({
+            "id": cap_id,
+            "cliente_id": r["cliente_id"],
+            "centro_id": r["centro_id"],
+            "nombre": r["centro_nombre"],
+            "uuid_equipo": r["uuid_equipo"],
+            "last_seen": last_seen_dt.isoformat() if last_seen_dt else None,
+            "online": online_flag,
             "observacion": obs,
             "grabacion": grab,
-            "dispositivo_id": dispositivo_id,
-            "fecha_reporte": str(target),
-            "estado": estado,                 # "sin_reporte" si no hay captura
-            "ultima_imagen_url": ultima_url,  # None si no hay imagen
+            "dispositivo_id": r["cap_dispositivo_id"],
+            "fecha_reporte": str(fecha_val),
+            "estado": estado_val,
+            "ultima_version_id": ver_id,
+            "ultima_imagen_url": f"/api/capturas/{cap_id}/ultima/image" if (cap_id and ver_id) else None,
         })
 
-    return out
+    total_pages = max(1, (total + page_size - 1) // page_size) if page_size else 1
+
+    return {
+        "items": items,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "total_pages": total_pages,
+    }
 
 
 
@@ -463,7 +508,7 @@ async def listar_capturas(
 # =========================
 @router.get("/{captura_id}/estado")
 async def estado_captura(captura_id: int, db: AsyncSession = Depends(get_db)):
-    # última version id + timestamp
+    # ├║ltima version id + timestamp
     res = await db.execute(
         select(
             CapturaVersion.id.label("ultima_version_id"),
@@ -524,7 +569,7 @@ async def get_ultima_thumb(
     if not v or not v.imagen_bytes:
         raise HTTPException(status_code=404, detail="sin imagen")
 
-    # ETag basada en version-id + parámetros
+    # ETag basada en version-id + par├ímetros
     etag = f"W/\"capv-{v.id}-w{max_w}-q{quality}\""
     inm = request.headers.get("if-none-match")
     if inm and inm == etag:
@@ -579,7 +624,7 @@ async def get_ultima_image(request: Request, captura_id: int, db: AsyncSession =
         return Response(status_code=304)
 
     headers = {
-        # cache corto; los cambios de versión invalidan por ETag
+        # cache corto; los cambios de versi├│n invalidan por ETag
         "Cache-Control": "public, max-age=120, stale-while-revalidate=60",
         "ETag": etag,
     }
@@ -604,7 +649,7 @@ async def actualizar_captura(
         cap.observacion = payload.observacion
     if payload.grabacion is not None:
         cap.grabacion = payload.grabacion
-    if payload.dispositivo_id is not None:         # 👈 faltaba aplicar el cambio
+    if payload.dispositivo_id is not None:         # ­ƒæê faltaba aplicar el cambio
         cap.dispositivo_id = payload.dispositivo_id
 
     await db.commit()
@@ -631,8 +676,9 @@ async def eliminar_captura(
     if not cap:
         raise HTTPException(status_code=404, detail="captura no encontrada")
 
-    # Eliminamos versiones explícitamente por si el FK no tiene ON DELETE CASCADE
+    # Eliminamos versiones expl├¡citamente por si el FK no tiene ON DELETE CASCADE
     await db.execute(delete(CapturaVersion).where(CapturaVersion.captura_id == captura_id))
     await db.delete(cap)
     await db.commit()
     return {"ok": True}
+

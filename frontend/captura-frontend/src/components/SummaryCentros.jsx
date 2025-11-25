@@ -5,7 +5,7 @@ function initials(name = "") {
   return parts.map((p) => (p?.[0] || "").toUpperCase()).join("") || "CL";
 }
 
-export default function SummaryCentros({ base, onChanged }) {
+export default function SummaryCentros({ base, onChanged, canDelete = true }) {
   const [data, setData] = useState({ items: [], total_clientes: 0, total_centros: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -191,12 +191,14 @@ export default function SummaryCentros({ base, onChanged }) {
                         >
                           Editar
                         </button>
-                        <button
-                          onClick={() => handleDelete(it)}
-                          className="px-3 py-1.5 rounded-lg bg-rose-600 text-white text-xs font-medium hover:bg-rose-500 focus:outline-none focus:ring-2 focus:ring-rose-300"
-                        >
-                          Eliminar
-                        </button>
+                        {canDelete && (
+                          <button
+                            onClick={() => handleDelete(it)}
+                            className="px-3 py-1.5 rounded-lg bg-rose-600 text-white text-xs font-medium hover:bg-rose-500 focus:outline-none focus:ring-2 focus:ring-rose-300"
+                          >
+                            Eliminar
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>

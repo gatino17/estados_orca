@@ -1,5 +1,5 @@
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy import Integer, String, TIMESTAMP, ForeignKey, Text, Date, Boolean, Numeric
+from sqlalchemy import Integer, String, TIMESTAMP, ForeignKey, Text, Date, Boolean, Numeric, Index
 from datetime import datetime, date
 from app.db.base import Base
 from sqlalchemy import Column, DateTime
@@ -7,6 +7,10 @@ from sqlalchemy import Column, DateTime
 
 class Centro(Base):
     __tablename__ = "centros"
+    __table_args__ = (
+        Index("ix_centros_cliente_id", "cliente_id"),
+        Index("ix_centros_last_seen", "last_seen"),
+    )
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     cliente_id: Mapped[int] = mapped_column(ForeignKey("clientes.id", ondelete="CASCADE"))
     nombre: Mapped[str] = mapped_column(String(150))

@@ -31,8 +31,6 @@ function Hamburger({ open, onClick, inverted = false }) {
 /* ------------------------------ Constantes ------------------------------ */
 
 const ROLE_LABELS = { admin: "Administrador", cliente: "Cliente", soporte: "Soporte" };
-const STATUS_THRESHOLD_SEC = 20;
-
 // Normaliza URLs (quita slash final)
 const normalize = (s) => (s || "").replace(/\/$/, "");
 const DEFAULT_BASE = normalize(import.meta.env.VITE_API_BASE ?? "http://localhost:8000");
@@ -239,16 +237,27 @@ function DashboardShell({
   });
   
   const [rows, setRows] = useState([]);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(() => {
+    try {
+      const raw = localStorage.getItem("ct.pageSize");
+      const n = raw ? parseInt(raw, 10) : 15;
+      return [10, 15, 30, 50].includes(n) ? n : 15;
+    } catch {
+      return 15;
+    }
+  });
+  const [totalRows, setTotalRows] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
   const [loading, setLoading] = useState(false);
   const [section, setSection] = useState("centros"); // 'centros' | 'users' | 'summary'
   const [view, setView] = useState("table");
 
   // AbortControllers para cancelar solicitudes al cambiar de cliente
   const capturasAbortRef = useRef(null);
-  const statusAbortRef = useRef(null);
 
   // Cache efímera para prefetch por cliente
-  const prefetchCacheRef = useRef({}); // { [clienteId]: { rows, statusMap, ts } }
+  const prefetchCacheRef = useRef({}); // { [clienteId]: { rows, statusMap, ts, total, totalPages } }
 
   const prefetchForCliente = useCallback(async (clienteObj) => {
     const cid = clienteObj?.id;
@@ -261,25 +270,24 @@ function DashboardShell({
       const qCapt = new URLSearchParams();
       qCapt.set("cliente_id", String(cid));
       if (fecha) qCapt.set("fecha", fecha);
+      qCapt.set("page", "1");
+      qCapt.set("page_size", String(pageSize));
 
-      const qStat = new URLSearchParams({
-        cliente_id: String(cid),
-        threshold_sec: String(STATUS_THRESHOLD_SEC),
-        _ts: String(Date.now()),
-      });
-
-      const [rc, rs] = await Promise.all([
-        fetch(`${base}/api/capturas?${qCapt.toString()}`, { cache: "no-store" }),
-        fetch(`${base}/api/centros/status?${qStat.toString()}`, { cache: "no-store" }),
-      ]);
-      const nextRows = await rc.json().catch(() => []);
-      const stData = await rs.json().catch(() => ({}));
+      const rc = await fetch(`${base}/api/capturas?${qCapt.toString()}`, { cache: "no-store" });
+      const captData = await rc.json().catch(() => ({}));
+      const nextRows = Array.isArray(captData.items) ? captData.items : [];
       const map = {};
-      for (const it of stData.items || []) map[it.id] = { online: !!it.online, last_seen: it.last_seen || null };
+      for (const it of nextRows || []) map[it.centro_id] = { online: !!it.online, last_seen: it.last_seen || null };
 
-      prefetchCacheRef.current[cid] = { rows: Array.isArray(nextRows) ? nextRows : [], statusMap: map, ts: now };
+      prefetchCacheRef.current[cid] = {
+        rows: nextRows,
+        statusMap: map,
+        ts: now,
+        total: Number(captData.total || nextRows.length || 0),
+        totalPages: Number(captData.total_pages || 1),
+      };
     } catch {}
-  }, [base, fecha]);
+  }, [base, fecha, pageSize]);
 
   // Prefetch silencioso de los primeros clientes tras cargar la lista
   useEffect(() => {
@@ -322,6 +330,7 @@ function DashboardShell({
   const isUsersSection = section === "users";
   const isSummarySection = section === "summary";
   const isCentrosSection = section === "centros";
+  const isAdmin = currentUser?.role === "admin";
 
   const [createOpen, setCreateOpen] = useState(false);
 
@@ -332,20 +341,16 @@ function DashboardShell({
         setCreateOpen(false);
       }
       if (target === "users") {
+        if (!isAdmin) return;
         setMenuOpen(false);
       }
     },
-    [setSection, setCreateOpen, setMenuOpen]
+    [setSection, setCreateOpen, setMenuOpen, isAdmin]
   );
 
   // ====== estado de status (LED) ======
   const [statusMap, setStatusMap] = useState({}); // { [centro_id]: { online, last_seen } }
-  const ivStatusRef = useRef(null);
 
-  // ====== Auto-refresh de capturas ======
-  // Evita forzar recarga periódica de imágenes: solo se actualizarán
-  // cuando una captura realmente cambie (p.ej., tras "retomar").
-  const [cacheBust, setCacheBust] = useState(null);
   const ivRowsRef = useRef(null);
 
   const loadClientes = useCallback(async () => {
@@ -377,16 +382,14 @@ function DashboardShell({
     loadClientes();
   }, [loadClientes]);
 
-  const qs = useMemo(() => {
-    const q = new URLSearchParams();
-    if (cliente?.id) q.set("cliente_id", String(cliente.id));
-    if (fecha) q.set("fecha", fecha);
-    return q.toString();
-  }, [cliente, fecha]);
+  useEffect(() => {
+    setPage(1);
+  }, [cliente?.id, fecha]);
 
   // capturas
   async function loadCapturas(opts = { silent: false }) {
-    if (!cliente?.id) return;
+    const cid = opts?.clienteId ?? cliente?.id;
+    if (!cid) return;
     if (!opts.silent) setLoading(true);
     try {
       // cancela una petición previa en curso
@@ -394,13 +397,32 @@ function DashboardShell({
       const ctrl = new AbortController();
       capturasAbortRef.current = ctrl;
 
-      const r = await fetch(`${base}/api/capturas?${qs}`, { cache: "no-store", signal: ctrl.signal });
+      const q = new URLSearchParams();
+      q.set("cliente_id", String(cid));
+      const fechaVal = opts?.fecha ?? fecha;
+      if (fechaVal) q.set("fecha", fechaVal);
+      q.set("page", String(opts?.page ?? page));
+      q.set("page_size", String(opts?.pageSize ?? pageSize));
+
+      const r = await fetch(`${base}/api/capturas?${q.toString()}`, { cache: "no-store", signal: ctrl.signal });
       const data = await r.json();
-      setRows(data);
+      const items = Array.isArray(data?.items) ? data.items : [];
+      setRows(items);
+      const map = {};
+      for (const it of items) map[it.centro_id] = { online: !!it.online, last_seen: it.last_seen || null };
+      setStatusMap(map);
+      setTotalRows(Number(data?.total || items.length || 0));
+      setTotalPages(Number(data?.total_pages || 1));
+      if (page > Number(data?.total_pages || 1)) {
+        setPage(Number(data?.total_pages || 1) || 1);
+      }
     } catch (e) {
       if (e && e.name === "AbortError") return; // cambio de cliente
       console.error("capturas:", e);
       setRows([]);
+      setStatusMap({});
+      setTotalRows(0);
+      setTotalPages(1);
     } finally {
       // limpia referencia; si otra petición se inició luego, esta no toca loading
       capturasAbortRef.current = null;
@@ -411,54 +433,7 @@ function DashboardShell({
   // primer fetch de capturas
   useEffect(() => {
     loadCapturas({ silent: false });
-  }, [qs, base]);
-
-  // cargar status
-  const loadStatus = useCallback(async () => {
-    if (!cliente?.id) return;
-    const q2 = new URLSearchParams({
-      cliente_id: String(cliente.id),
-      threshold_sec: String(STATUS_THRESHOLD_SEC),
-      _ts: String(Date.now()),
-    }).toString();
-
-    try {
-      if (statusAbortRef.current) statusAbortRef.current.abort();
-      const ctrl = new AbortController();
-      statusAbortRef.current = ctrl;
-
-      const r = await fetch(`${base}/api/centros/status?${q2}`, { cache: "no-store", signal: ctrl.signal });
-      if (!r.ok) return;
-      const data = await r.json();
-      const map = {};
-      for (const it of data.items || []) {
-        map[it.id] = { online: !!it.online, last_seen: it.last_seen || null };
-      }
-      setStatusMap(map);
-    } catch (e) {
-      if (e && e.name === "AbortError") return;
-      /* noop */
-    }
-    finally {
-      statusAbortRef.current = null;
-    }
-  }, [base, cliente?.id]);
-
-  // polling de status cada 3s
-  useEffect(() => {
-    loadStatus();
-    if (ivStatusRef.current) clearInterval(ivStatusRef.current);
-    ivStatusRef.current = setInterval(loadStatus, 3000);
-
-    const onVis = () => {
-      if (document.visibilityState === "visible") loadStatus();
-    };
-    document.addEventListener("visibilitychange", onVis);
-    return () => {
-      if (ivStatusRef.current) clearInterval(ivStatusRef.current);
-      document.removeEventListener("visibilitychange", onVis);
-    };
-  }, [loadStatus]);
+  }, [cliente?.id, fecha, page, pageSize, base]);
 
   // polling de capturas (silencioso) sin forzar recarga de imágenes
   useEffect(() => {
@@ -467,7 +442,6 @@ function DashboardShell({
     if (ivRowsRef.current) clearInterval(ivRowsRef.current);
     ivRowsRef.current = setInterval(() => {
       loadCapturas({ silent: true });
-      // No actualizamos cacheBust aquí para no disparar recargas de imágenes
     }, 10000);
 
     const onVis = () => {
@@ -480,7 +454,7 @@ function DashboardShell({
       if (ivRowsRef.current) clearInterval(ivRowsRef.current);
       document.removeEventListener("visibilitychange", onVis);
     };
-  }, [qs, base]);
+  }, [cliente?.id, fecha, page, pageSize, base]);
 
   // mezcla de status con capturas
   const mergedRows = useMemo(() => {
@@ -491,7 +465,7 @@ function DashboardShell({
     });
   }, [rows, statusMap]);
 
-  const totalCentros = mergedRows?.length || 0;
+  const totalCentros = totalRows || mergedRows?.length || 0;
 
   // PDF
   async function descargarPdf() {
@@ -563,23 +537,24 @@ function DashboardShell({
               if (cached) {
                 setRows(cached.rows);
                 setStatusMap(cached.statusMap);
+                setTotalRows(cached.total || cached.rows?.length || 0);
+                setTotalPages(cached.totalPages || 1);
               } else {
                 setRows([]);
+                setTotalRows(0);
+                setTotalPages(1);
               }
               setCliente(c);
+              setPage(1);
               setMenuOpen(false); // cerrar en movil tras elegir
 
               // Cancelar peticiones en curso
               try { if (capturasAbortRef.current) capturasAbortRef.current.abort(); } catch {}
-              try { if (statusAbortRef.current) statusAbortRef.current.abort(); } catch {}
 
               // Re-disparar cargas inmediatamente para el nuevo cliente
-              setTimeout(() => {
-                loadStatus();
-                loadCapturas({ silent: false });
-              }, 0);
+              loadCapturas({ silent: false, clienteId: c?.id, page: 1, pageSize });
             }}
-            onManageUsers={() => goToSection("users")}
+            onManageUsers={() => isAdmin && goToSection("users")}
             currentUser={currentUser}
             refreshKey={clientesRefreshKey}
           />
@@ -780,7 +755,7 @@ function DashboardShell({
           </div>
         </div>
 
-        {isUsersSection ? (
+        {isUsersSection && isAdmin ? (
           <div className="max-w-7xl mx-auto px-4 py-6">
             <UsersPage
               embedded
@@ -794,7 +769,17 @@ function DashboardShell({
           </div>
         ) : isSummarySection ? (
           <div className="max-w-7xl mx-auto px-4 py-6">
-            <SummaryCentros base={base} onChanged={loadClientes} />
+            <SummaryCentros base={base} onChanged={loadClientes} canDelete={isAdmin} />
+          </div>
+        ) : isUsersSection && !isAdmin ? (
+          <div className="max-w-7xl mx-auto px-4 py-6">
+            <div className="text-sm text-rose-600">Acceso no autorizado a la gesti&oacute;n de usuarios.</div>
+            <button
+              onClick={() => goToSection("centros")}
+              className="mt-3 inline-flex items-center gap-2 rounded-lg bg-slate-900 text-white px-3 py-2 text-sm font-medium hover:bg-slate-800"
+            >
+              Volver
+            </button>
           </div>
         ) : (
           <>
@@ -951,15 +936,27 @@ function DashboardShell({
                       q.set("cliente_id", String(cliente.id));
                       q.set("centro_id", String(row.centro_id));
                       if (fecha) q.set("fecha", fecha);
+                      q.set("page", "1");
+                      q.set("page_size", "1");
                       const r = await fetch(`${base}/api/capturas?${q.toString()}`, { cache: "no-store" });
                       const list = await r.json();
-                      const updated = Array.isArray(list) && list.length ? list[0] : null;
+                      const updated = Array.isArray(list?.items) && list.items.length ? list.items[0] : null;
                       if (!updated) return;
                       setRows((prev) => (prev || []).map((it) => (it.centro_id === updated.centro_id ? updated : it)));
                     } catch {}
                   }}
-                  refreshStatus={loadStatus}
-                  cacheBust={cacheBust}
+                  refreshStatus={() => loadCapturas({ silent: true })}
+                  page={page}
+                  pageSize={pageSize}
+                  total={totalRows}
+                  totalPages={totalPages}
+                  onPageChange={(p) => setPage(p)}
+                  onPageSizeChange={(ps) => {
+                    setPageSize(ps);
+                    setPage(1);
+                    try { localStorage.setItem("ct.pageSize", String(ps)); } catch {}
+                  }}
+                  canDelete={currentUser?.role === "admin"}
                 />
               )}
 

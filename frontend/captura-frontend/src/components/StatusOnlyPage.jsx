@@ -8,8 +8,8 @@ function Dot({ online }) {
       className={[
         "inline-block w-2.5 h-2.5 rounded-full align-middle",
         online
-          ? "bg-emerald-500 shadow-[0_0_0_2px_rgba(16,185,129,.2)]"
-          : "bg-slate-300",
+          ? "bg-emerald-500 shadow-[0_0_0_2px_rgba(16,185,129,.2)] ring-1 ring-emerald-600/50"
+          : "bg-slate-300 ring-1 ring-slate-300/60",
       ].join(" ")}
     />
   );
@@ -379,6 +379,8 @@ function NetioCell({ base, row }) {
 export default function StatusOnlyPage({ base, cliente, embedded = false }) {
   const clienteId = cliente?.id ?? null;
   const [items, setItems] = useState([]);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
   const [loading, setLoading] = useState(false);
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [lastFetched, setLastFetched] = useState(null);
@@ -422,6 +424,7 @@ export default function StatusOnlyPage({ base, cliente, embedded = false }) {
   useEffect(() => {
     if (!clienteId) {
       setItems([]);
+      setPage(1);
       return;
     }
     loadStatus({ silent: false });
@@ -459,6 +462,20 @@ export default function StatusOnlyPage({ base, cliente, embedded = false }) {
     () => items.slice().sort((a, b) => (a.nombre || "").localeCompare(b.nombre || "")),
     [items]
   );
+
+  const totalPages = useMemo(
+    () => Math.max(1, Math.ceil(sorted.length / pageSize)),
+    [sorted.length, pageSize]
+  );
+
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [page, totalPages]);
+
+  const paged = useMemo(() => {
+    const start = (page - 1) * pageSize;
+    return sorted.slice(start, start + pageSize);
+  }, [sorted, page, pageSize]);
 
   const { totalCentros, onlineCount, offlineCount } = useMemo(() => {
     const total = sorted.length;
@@ -544,13 +561,12 @@ export default function StatusOnlyPage({ base, cliente, embedded = false }) {
                 <tr>
                   <th className="px-4 py-3 text-left">Centro</th>
                   <th className="px-4 py-3 text-left">UUID</th>
-                  <th className="px-4 py-3 text-left">Estado LED</th>
                   <th className="px-4 py-3 text-left">NETIO</th>
                   <th className="px-4 py-3 text-left">Ultimo reporte</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 bg-white">
-                {sorted.map((row) => (
+                {paged.map((row) => (
                   <tr key={row.id} className="transition hover:bg-slate-50">
                     <td className="px-4 py-3 align-top">
                       <div className="font-semibold text-slate-900">{row.nombre || `Centro ${row.id}`}</div>
@@ -558,9 +574,7 @@ export default function StatusOnlyPage({ base, cliente, embedded = false }) {
                     </td>
                     <td className="px-4 py-3 align-top">
                       <div className="font-mono text-xs text-slate-700">{row.uuid_equipo || "-"}</div>
-                    </td>
-                    <td className="px-4 py-3 align-top">
-                      <div className="inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700 ring-1 ring-slate-200">
+                      <div className="mt-2 inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1 text-[11px] font-medium text-slate-700 ring-1 ring-slate-200">
                         <Dot online={row.online} />
                         {row.online ? "Conectado" : "Desconectado"}
                       </div>
@@ -574,7 +588,7 @@ export default function StatusOnlyPage({ base, cliente, embedded = false }) {
 
                 {loading && (
                   <tr>
-                    <td colSpan={5} className="px-4 py-8 text-center text-sm text-slate-500">
+                    <td colSpan={4} className="px-4 py-8 text-center text-sm text-slate-500">
                       <div className="inline-flex items-center gap-2">
                         <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-slate-300 border-t-transparent" />
                         Consultando estado de los centros...
@@ -585,7 +599,7 @@ export default function StatusOnlyPage({ base, cliente, embedded = false }) {
 
                 {showEmptyState && (
                   <tr>
-                    <td colSpan={5} className="px-4 py-10 text-center text-sm text-slate-500">
+                    <td colSpan={4} className="px-4 py-10 text-center text-sm text-slate-500">
                       No hay centros registrados para este cliente o aun no reportan actividad.
                     </td>
                   </tr>
@@ -596,7 +610,7 @@ export default function StatusOnlyPage({ base, cliente, embedded = false }) {
 
           <div className="md:hidden">
             <div className="space-y-4 p-4">
-              {sorted.map((row) => (
+              {paged.map((row) => (
                 <div
                   key={row.id}
                   className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm space-y-3"
@@ -612,11 +626,7 @@ export default function StatusOnlyPage({ base, cliente, embedded = false }) {
                         {row.uuid_equipo || "-"}
                       </span>
                     </p>
-                  </div>
-
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-xs uppercase tracking-[0.3em] text-slate-500">Estado</span>
-                    <div className="inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700 ring-1 ring-slate-200">
+                    <div className="mt-2 inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1 text-[11px] font-medium text-slate-700 ring-1 ring-slate-200">
                       <Dot online={row.online} />
                       {row.online ? "Conectado" : "Desconectado"}
                     </div>
@@ -650,6 +660,48 @@ export default function StatusOnlyPage({ base, cliente, embedded = false }) {
                   No hay centros registrados para este cliente o aun no reportan actividad.
                 </div>
               )}
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between gap-3 border-t border-slate-200 px-4 py-3 text-sm text-slate-600">
+            <div className="flex items-center gap-2">
+              <span>Filas por página</span>
+              <select
+                className="border rounded px-2 py-1 text-xs"
+                value={pageSize}
+                onChange={(e) => {
+                  const next = parseInt(e.target.value, 10) || 10;
+                  setPageSize(next);
+                  setPage(1);
+                }}
+              >
+                {[10, 15, 25, 50].map((n) => (
+                  <option key={n} value={n}>{n}</option>
+                ))}
+              </select>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                className="px-2 py-1 rounded border text-xs disabled:opacity-50"
+                onClick={() => setPage(1)}
+                disabled={page <= 1}
+              >{"<<"}</button>
+              <button
+                className="px-2 py-1 rounded border text-xs disabled:opacity-50"
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page <= 1}
+              >{"<"}</button>
+              <span>{page} / {totalPages}</span>
+              <button
+                className="px-2 py-1 rounded border text-xs disabled:opacity-50"
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                disabled={page >= totalPages}
+              >{">"}</button>
+              <button
+                className="px-2 py-1 rounded border text-xs disabled:opacity-50"
+                onClick={() => setPage(totalPages)}
+                disabled={page >= totalPages}
+              >{">>"}</button>
             </div>
           </div>
         </section>

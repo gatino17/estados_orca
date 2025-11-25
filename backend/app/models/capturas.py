@@ -1,7 +1,7 @@
 ﻿from datetime import datetime, date
 from typing import Optional
 
-from sqlalchemy import ForeignKey, Integer, LargeBinary, String, TIMESTAMP, Text
+from sqlalchemy import ForeignKey, Integer, LargeBinary, String, TIMESTAMP, Text, Index
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -9,6 +9,11 @@ from app.db.base import Base
 
 class Captura(Base):
     __tablename__ = "capturas"
+    __table_args__ = (
+        Index("ix_capturas_centro_fecha_disp", "centro_id", "fecha_reporte", "dispositivo_id"),
+        Index("ix_capturas_cliente_fecha", "cliente_id", "fecha_reporte"),
+        Index("ix_capturas_created_at", "created_at"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     cliente_id: Mapped[int] = mapped_column(ForeignKey("clientes.id", ondelete="CASCADE"))
@@ -28,6 +33,9 @@ class Captura(Base):
 
 class CapturaVersion(Base):
     __tablename__ = "captura_versiones"
+    __table_args__ = (
+        Index("ix_capver_captura_fecha", "captura_id", "tomada_en"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     captura_id: Mapped[int] = mapped_column(ForeignKey("capturas.id", ondelete="CASCADE"))
