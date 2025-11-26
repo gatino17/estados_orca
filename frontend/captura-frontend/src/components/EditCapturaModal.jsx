@@ -5,10 +5,18 @@ export default function EditCapturaModal({ open, onClose, base, row, onSaved }) 
   const [estado, setEstado] = useState(row?.estado || "pendiente");
   const [observacion, setObservacion] = useState(row?.observacion || "");
   const [grabacion, setGrabacion] = useState(row?.grabacion || "");
+  const [observacionPreset, setObservacionPreset] = useState("custom");
   const [file, setFile] = useState(null);
   const [previewUrl, setPreviewUrl] = useState(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+
+  const OBS_PRESETS = [
+    { value: "sin_conexion", label: "Sin conexion con el centro al momento de la revision.", text: "Sin conexion con el centro al momento de la revision." },
+    { value: "observacion", label: "Centro en observacion.", text: "Centro en observacion." },
+    { value: "tecnico", label: "Gestionando tecnico en terreno.", text: "Gestionando tecnico en terreno." },
+    { value: "custom", label: "Personalizada", text: "" },
+  ];
 
   useEffect(() => {
     if (open) {
@@ -16,6 +24,8 @@ export default function EditCapturaModal({ open, onClose, base, row, onSaved }) 
       setEstado(row?.estado || "pendiente");
       setObservacion(row?.observacion || "");
       setGrabacion(row?.grabacion || "");
+      const presetMatch = OBS_PRESETS.find((p) => p.text && p.text === (row?.observacion || ""));
+      setObservacionPreset(presetMatch ? presetMatch.value : "custom");
       setFile(null);
       setPreviewUrl(null);
       setError("");
@@ -118,11 +128,32 @@ export default function EditCapturaModal({ open, onClose, base, row, onSaved }) 
 
           <div>
             <label className="block text-sm text-slate-700 mb-1">Observacion</label>
+            <select
+              className="border rounded px-3 py-2 text-sm w-full mb-2"
+              value={observacionPreset}
+              onChange={(e) => {
+                const next = e.target.value;
+                setObservacionPreset(next);
+                const preset = OBS_PRESETS.find((p) => p.value === next);
+                if (preset && preset.text) {
+                  setObservacion(preset.text);
+                } else {
+                  setObservacion("");
+                }
+              }}
+            >
+              {OBS_PRESETS.map((opt) => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
             <textarea
               className="border rounded px-3 py-2 text-sm w-full"
               rows={3}
               value={observacion}
-              onChange={(e) => setObservacion(e.target.value)}
+              onChange={(e) => {
+                setObservacion(e.target.value);
+                setObservacionPreset("custom");
+              }}
               placeholder="Notas de la captura."
             />
           </div>
