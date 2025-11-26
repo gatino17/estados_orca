@@ -17,6 +17,11 @@ from app.models.dispositivos import Dispositivo
 
 
 from typing import Optional
+from functools import lru_cache
+
+# Cache simple en memoria para thumbs: clave (version_id, max_w, quality) -> bytes
+_thumb_cache: dict[tuple[int, int, int], bytes] = {}
+_THUMB_CACHE_MAX = 120  # limite rudimentario
 
 
 router = APIRouter(prefix="/api/capturas", tags=["capturas"])
@@ -569,18 +574,25 @@ async def get_ultima_thumb(
     if not v or not v.imagen_bytes:
         raise HTTPException(status_code=404, detail="sin imagen")
 
-    # ETag basada en version-id + par├ímetros
-    etag = f"W/\"capv-{v.id}-w{max_w}-q{quality}\""
+    etag = f'W/"capv-{v.id}-w{max_w}-q{quality}"'
     inm = request.headers.get("if-none-match")
     if inm and inm == etag:
         return Response(status_code=304)
+
+    cache_key = (v.id, max_w, quality)
+    if cache_key in _thumb_cache:
+        data = _thumb_cache[cache_key]
+        headers = {
+            "Cache-Control": "public, max-age=300, stale-while-revalidate=120",
+            "ETag": etag,
+        }
+        return Response(content=data, media_type="image/webp", headers=headers)
 
     try:
         from PIL import Image
         import io
 
         img = Image.open(BytesIO(v.imagen_bytes))
-        # Algunos agentes pueden subir paleta/CMYK; convertimos a RGB de forma segura
         if img.mode not in ("RGB", "RGBA"):
             img = img.convert("RGB")
 
@@ -594,10 +606,13 @@ async def get_ultima_thumb(
         data = out.getvalue()
         media_type = "image/webp"
     except Exception as e:
-        # Fallback: si Pillow falla (bytes corruptos, formato no soportado), devuelve original
         print(f"[thumb] WARNING captura_id={captura_id} fallback original: {e!r}", flush=True)
         data = v.imagen_bytes
         media_type = v.content_type or "application/octet-stream"
+
+    if len(_thumb_cache) > _THUMB_CACHE_MAX:
+        _thumb_cache.clear()
+    _thumb_cache[cache_key] = data
 
     headers = {
         "Cache-Control": "public, max-age=300, stale-while-revalidate=120",
