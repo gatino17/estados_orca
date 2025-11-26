@@ -481,8 +481,27 @@ async def listar_capturas(
         else:
             base = base.where(or_(Centro.last_seen.is_(None), Centro.last_seen < limit_dt))
 
-    total_res = await db.execute(select(func.count()).select_from(base.subquery()))
+    subq = base.subquery()
+    total_res = await db.execute(select(func.count()).select_from(subq))
     total = int(total_res.scalar_one() or 0)
+
+    # conteo de centros sin imagen (ultima_version_id es null)
+    sin_img_res = await db.execute(
+        select(func.count()).select_from(subq).where(subq.c.ver_id.is_(None))
+    )
+    total_sin_imagen = int(sin_img_res.scalar_one() or 0)
+
+    # listado de nombres (limitado) sin imagen
+    missing_res = await db.execute(
+        select(subq.c.centro_id, subq.c.centro_nombre)
+        .where(subq.c.ver_id.is_(None))
+        .order_by(subq.c.centro_nombre.asc())
+        .limit(80)
+    )
+    missing_names = [
+        row.centro_nombre or f"Centro {row.centro_id}"
+        for row in missing_res
+    ]
 
     offset = max(0, (page - 1) * page_size)
 
@@ -530,6 +549,8 @@ async def listar_capturas(
     return {
         "items": items,
         "total": total,
+        "total_sin_imagen": total_sin_imagen,
+        "sin_imagen_nombres": missing_names,
         "page": page,
         "page_size": page_size,
         "total_pages": total_pages,

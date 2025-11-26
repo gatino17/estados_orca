@@ -249,6 +249,8 @@ function DashboardShell({
   });
   const [totalRows, setTotalRows] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
+  const [totalSinImagen, setTotalSinImagen] = useState(0);
+  const [missingNamesTotal, setMissingNamesTotal] = useState([]);
   const [loading, setLoading] = useState(false);
   const [section, setSection] = useState("centros"); // 'centros' | 'users' | 'summary'
   const [view, setView] = useState("table");
@@ -412,7 +414,9 @@ function DashboardShell({
       for (const it of items) map[it.centro_id] = { online: !!it.online, last_seen: it.last_seen || null };
       setStatusMap(map);
       setTotalRows(Number(data?.total || items.length || 0));
+      setTotalSinImagen(Number(data?.total_sin_imagen || 0));
       setTotalPages(Number(data?.total_pages || 1));
+      setMissingNamesTotal(Array.isArray(data?.sin_imagen_nombres) ? data.sin_imagen_nombres : []);
       if (page > Number(data?.total_pages || 1)) {
         setPage(Number(data?.total_pages || 1) || 1);
       }
@@ -423,6 +427,8 @@ function DashboardShell({
       setStatusMap({});
       setTotalRows(0);
       setTotalPages(1);
+      setTotalSinImagen(0);
+      setMissingNamesTotal([]);
     } finally {
       // limpia referencia; si otra petición se inició luego, esta no toca loading
       capturasAbortRef.current = null;
@@ -950,6 +956,8 @@ function DashboardShell({
                   pageSize={pageSize}
                   total={totalRows}
                   totalPages={totalPages}
+                  totalSinImagen={totalSinImagen}
+                  missingNamesTotal={missingNamesTotal}
                   onPageChange={(p) => setPage(p)}
                   onPageSizeChange={(ps) => {
                     setPageSize(ps);

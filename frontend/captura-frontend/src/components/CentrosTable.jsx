@@ -1,5 +1,5 @@
 // CentrosTable.jsx
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import ImageModal from "./ImageModal";
 import EditCapturaModal from "./EditCapturaModal";
 
@@ -59,6 +59,8 @@ export default function CentrosTable({
   onPageChange,
   onPageSizeChange,
   canDelete = true,
+  totalSinImagen = 0,
+  missingNamesTotal = [],
 }) {
   const [imgOpen, setImgOpen] = useState(false);
   const [imgSrc, setImgSrc] = useState("");
@@ -67,6 +69,7 @@ export default function CentrosTable({
   const [statusById, setStatusById] = useState({});
   const [editRow, setEditRow] = useState(null);
   const startTimesRef = useRef({});
+  const [missingImages, setMissingImages] = useState(new Set());
 
   const safePage = Math.max(1, page || 1);
   const safePageSize = Math.max(1, pageSize || 1);
@@ -76,6 +79,23 @@ export default function CentrosTable({
   const endIdx = safeTotal ? Math.min(startIdx + safePageSize - 1, safeTotal) : 0;
   const viewRows = useMemo(() => rows || [], [rows]);
   const hasStatus = useMemo(() => Object.values(statusById).some(Boolean), [statusById]);
+  const missingCount = totalSinImagen || missingImages.size;
+  const missingNames = useMemo(() => {
+    if (Array.isArray(missingNamesTotal) && missingNamesTotal.length) return missingNamesTotal;
+    if (!rows?.length) return [];
+    return rows
+      .filter((r) => !r?.ultima_imagen_url)
+      .map((r) => r.nombre || `Centro ${r.centro_id || r.id}`);
+  }, [rows, missingNamesTotal]);
+
+  useEffect(() => {
+    const next = new Set();
+    (rows || []).forEach((r) => {
+      const k = r.id ?? r.centro_id;
+      if (!r?.ultima_imagen_url && k !== undefined) next.add(k);
+    });
+    setMissingImages(next);
+  }, [rows]);
 
   const btn = {
     base: "px-3 py-1.5 rounded-lg text-sm transition focus:outline-none focus:ring-2 focus:ring-offset-1",
@@ -256,6 +276,20 @@ export default function CentrosTable({
                 title="Ultima"
               >{">>"}</button>
             </div>
+            {missingCount > 0 && (
+              <div className="flex items-center gap-2 rounded-full px-3 py-2 text-xs text-rose-800 font-semibold bg-gradient-to-r from-rose-50 via-rose-100 to-orange-50 ring-1 ring-rose-200 shadow-sm">
+                <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-rose-200 text-rose-800 text-[10px]">
+                  !
+                </span>
+                <div className="flex flex-col">
+                  <span className="uppercase tracking-wide text-[11px]">Sin imagen: {missingCount}</span>
+                  <span className="text-[11px] font-semibold text-rose-900 line-clamp-2">
+                    {missingNames.slice(0, 6).join(", ")}
+                    {missingNames.length > 6 ? "…" : ""}
+                  </span>
+                </div>
+              </div>
+            )}
           </div>
         </div>
         <table className="min-w-full text-sm">
@@ -337,6 +371,11 @@ export default function CentrosTable({
                         className="w-44 h-28 object-cover rounded-lg ring-1 ring-slate-200 hover:shadow-md cursor-zoom-in transition"
                         onClick={() => openImage(row)}
                         alt=""
+                        onLoad={() => setMissingImages((prev) => {
+                          const next = new Set(prev);
+                          next.delete(row.id ?? row.centro_id);
+                          return next;
+                        })}
                       />
                     ) : (
                       <div className="text-xs text-slate-500">Sin imagen</div>
