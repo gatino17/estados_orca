@@ -579,17 +579,23 @@ async def get_ultima_thumb(
         from PIL import Image
         import io
 
-        img = Image.open(BytesIO(v.imagen_bytes)).convert("RGB")
+        img = Image.open(BytesIO(v.imagen_bytes))
+        # Algunos agentes pueden subir paleta/CMYK; convertimos a RGB de forma segura
+        if img.mode not in ("RGB", "RGBA"):
+            img = img.convert("RGB")
+
         w, h = img.size
         if w > max_w:
             scale = max_w / float(w)
             img = img.resize((int(w * scale), int(h * scale)))
+
         out = io.BytesIO()
         img.save(out, format="WEBP", quality=quality, method=6)
         data = out.getvalue()
         media_type = "image/webp"
-    except Exception:
-        # fallback: devuelve bytes originales
+    except Exception as e:
+        # Fallback: si Pillow falla (bytes corruptos, formato no soportado), devuelve original
+        print(f"[thumb] WARNING captura_id={captura_id} fallback original: {e!r}", flush=True)
         data = v.imagen_bytes
         media_type = v.content_type or "application/octet-stream"
 
