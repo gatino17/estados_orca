@@ -4,8 +4,10 @@ from app.core.config import settings
 
 engine = create_async_engine(
     settings.database_url,
-    pool_size=5,
-    max_overflow=10,
+    pool_size=40,          # subir pool para evitar agotarlo en long-poll
+    max_overflow=20,       # margen extra de conexiones
+    pool_timeout=30,       # espera antes de lanzar Timeout
+    pool_recycle=1800,     # recicla conexiones viejas (segundos)
     pool_pre_ping=True,
 )
 SessionLocal = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
