@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc, func, and_, or_
 from datetime import date, datetime, timedelta, timezone
 from io import BytesIO
+from pathlib import Path
 
 
 from app.db.session import get_db
@@ -17,11 +18,9 @@ from app.models.dispositivos import Dispositivo
 
 
 from typing import Optional
-from functools import lru_cache
-
-# Cache simple en memoria para thumbs: clave (version_id, max_w, quality) -> bytes
-_thumb_cache: dict[tuple[int, int, int], bytes] = {}
-_THUMB_CACHE_MAX = 120  # limite rudimentario
+# Cache simple en disco para thumbs: static/thumbs/{version_id}-w{max_w}-q{quality}.webp
+THUMB_DIR = Path(__file__).resolve().parent.parent / "static" / "thumbs"
+THUMB_DIR.mkdir(parents=True, exist_ok=True)
 
 
 router = APIRouter(prefix="/api/capturas", tags=["capturas"])
@@ -559,8 +558,8 @@ async def get_version_image(version_id: int, db: AsyncSession = Depends(get_db))
 async def get_ultima_thumb(
     request: Request,
     captura_id: int,
-    max_w: int = Query(480, ge=64, le=1920),
-    quality: int = Query(72, ge=40, le=95),
+    max_w: int = Query(360, ge=64, le=1920),
+    quality: int = Query(70, ge=40, le=95),
     db: AsyncSession = Depends(get_db),
 ):
     v = (
@@ -579,9 +578,10 @@ async def get_ultima_thumb(
     if inm and inm == etag:
         return Response(status_code=304)
 
-    cache_key = (v.id, max_w, quality)
-    if cache_key in _thumb_cache:
-        data = _thumb_cache[cache_key]
+    # path en disco para cache persistente
+    cache_path = THUMB_DIR / f"thumb_v{v.id}_w{max_w}_q{quality}.webp"
+    if cache_path.exists():
+        data = cache_path.read_bytes()
         headers = {
             "Cache-Control": "public, max-age=300, stale-while-revalidate=120",
             "ETag": etag,
@@ -610,9 +610,11 @@ async def get_ultima_thumb(
         data = v.imagen_bytes
         media_type = v.content_type or "application/octet-stream"
 
-    if len(_thumb_cache) > _THUMB_CACHE_MAX:
-        _thumb_cache.clear()
-    _thumb_cache[cache_key] = data
+    # Guardar en disco para reutilizar
+    try:
+        cache_path.write_bytes(data)
+    except Exception as e:
+        print(f"[thumb] WARNING no se pudo escribir cache {cache_path}: {e!r}", flush=True)
 
     headers = {
         "Cache-Control": "public, max-age=300, stale-while-revalidate=120",
