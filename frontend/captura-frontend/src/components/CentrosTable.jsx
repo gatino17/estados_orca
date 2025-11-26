@@ -93,7 +93,7 @@ export default function CentrosTable({
   function thumb(row) {
     if (!row?.ultima_imagen_url) return "";
     const path = row.ultima_imagen_url.replace("/ultima/image", "/ultima/thumb");
-    const versionParam = row.ultima_version_id ? `?max_w=480&v=${row.ultima_version_id}` : "?max_w=480";
+    const versionParam = row.ultima_version_id ? `?max_w=360&v=${row.ultima_version_id}` : "?max_w=360";
     return `${base}${path}${versionParam}`;
   }
 
@@ -102,9 +102,9 @@ export default function CentrosTable({
     const basePath = row.ultima_imagen_url.replace("/ultima/image", "/ultima/thumb");
     const qs = (w) => `?max_w=${w}${row.ultima_version_id ? `&v=${row.ultima_version_id}` : ""}`;
     return [
-      `${base}${basePath}${qs(320)} 320w`,
-      `${base}${basePath}${qs(480)} 480w`,
-      `${base}${basePath}${qs(640)} 640w`,
+      `${base}${basePath}${qs(360)} 360w`,
+      `${base}${basePath}${qs(540)} 540w`,
+      `${base}${basePath}${qs(720)} 720w`,
     ].join(", ");
   }
 

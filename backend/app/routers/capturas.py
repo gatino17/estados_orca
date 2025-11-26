@@ -22,6 +22,34 @@ from typing import Optional
 THUMB_DIR = Path(__file__).resolve().parent.parent / "static" / "thumbs"
 THUMB_DIR.mkdir(parents=True, exist_ok=True)
 
+def _save_thumb(version_id: int, raw_bytes: bytes, max_w: int = 360, quality: int = 70) -> Path | None:
+    """Genera y guarda miniatura en disco para reutilizarla."""
+    cache_path = THUMB_DIR / f"thumb_v{version_id}_w{max_w}_q{quality}.webp"
+    try:
+        from PIL import Image
+        import io
+
+        img = Image.open(BytesIO(raw_bytes))
+        if img.mode not in ("RGB", "RGBA"):
+            img = img.convert("RGB")
+
+        w, h = img.size
+        if w > max_w:
+            scale = max_w / float(w)
+            img = img.resize((int(w * scale), int(h * scale)))
+
+        out = io.BytesIO()
+        img.save(out, format="WEBP", quality=quality, method=6)
+        cache_path.write_bytes(out.getvalue())
+        return cache_path
+    except Exception as e:
+        try:
+            cache_path.write_bytes(raw_bytes)
+            return cache_path
+        except Exception as e2:
+            print(f"[thumb-pre] WARNING v_id={version_id} no se pudo escribir thumb: {e!r} / {e2!r}", flush=True)
+            return None
+
 
 router = APIRouter(prefix="/api/capturas", tags=["capturas"])
 
@@ -139,6 +167,8 @@ async def upload_captura(
     )
     db.add(version)
     await db.commit()
+    await db.refresh(version)
+    _save_thumb(version.id, bytes_, max_w=360, quality=70)
     return {"captura_id": captura.id, "version_id": version.id}
 
 
@@ -170,6 +200,8 @@ async def subir_version_captura(
     )
     db.add(version)
     await db.commit()
+    await db.refresh(version)
+    _save_thumb(version.id, bytes_, max_w=360, quality=70)
     return {"ok": True, "version_id": version.id}
 
 
