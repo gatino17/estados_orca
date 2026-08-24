@@ -64,14 +64,16 @@ class UserLoginSchema(BaseModel):
     password: str = Field(..., min_length=1)
 
 
-@router.get("/")
+@router.get("")
+@router.get("/", include_in_schema=False)
 async def list_users(db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(User).order_by(User.id))
     users = result.scalars().all()
     return [serialize_user(user) for user in users]
 
 
-@router.post("/", status_code=status.HTTP_201_CREATED)
+@router.post("", status_code=status.HTTP_201_CREATED)
+@router.post("/", status_code=status.HTTP_201_CREATED, include_in_schema=False)
 async def create_user(payload: UserCreateSchema, db: AsyncSession = Depends(get_db)):
     email = normalize_email(payload.email)
     existing = await db.execute(select(User).where(User.email == email))
