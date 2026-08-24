@@ -78,6 +78,7 @@ async def reporte_pdf(
             Centro.id.label("centro_id"),
             Centro.nombre.label("centro_nombre"),
             Centro.uuid_equipo.label("uuid_equipo"),
+            Centro.es_central.label("es_central"),
             Centro.last_seen.label("last_seen"),
             Centro.observacion.label("centro_observacion"),
             Centro.grabacion.label("centro_grabacion"),
@@ -112,6 +113,7 @@ async def reporte_pdf(
         rows.append({
             "nombre": r["centro_nombre"] or f"Centro {r['centro_id']}",
             "uuid": r["uuid_equipo"],
+            "es_central": bool(r["es_central"]),
             "last_seen": r["last_seen"].isoformat() if r["last_seen"] else None,
             "estado": estado,
             "observacion": obs,
@@ -123,8 +125,9 @@ async def reporte_pdf(
     if not rows:
         raise HTTPException(status_code=404, detail="No hay centros para este cliente")
 
-    total_centros = len(rows)
-    sin_imagen = total_centros - con_imagen
+    total_centrales = sum(1 for row in rows if row.get("es_central"))
+    total_centros = len(rows) - total_centrales
+    sin_imagen = len(rows) - con_imagen
 
     # === PDF ===
     buf = io.BytesIO()
@@ -230,7 +233,7 @@ async def reporte_pdf(
     line -= 14
 
     c.setFont("Helvetica", 10)
-    c.drawString(left, line, f"Totales  Centros: {total_centros} | Con imagen: {con_imagen} | Sin imagen: {sin_imagen}")
+    c.drawString(left, line, f"Totales  Centros: {total_centros} | Centrales: {total_centrales} | Con imagen: {con_imagen} | Sin imagen: {sin_imagen}")
     line -= 10
     c.setStrokeColor(colors.lightgrey)
     c.line(left, line, right, line)

@@ -38,12 +38,14 @@ class CentroCreate(BaseModel):
     grabacion: Optional[str] = "correcto"
     # NUEVO: permitir pasar uuid_equipo (opcional). Si no viene, lo generamos.
     uuid_equipo: Optional[str] = None
+    es_central: Optional[bool] = False
 
 class CentroUpdate(BaseModel):
     nombre: Optional[str] = None
     observacion: Optional[str] = None
     grabacion: Optional[str] = None
     uuid_equipo: Optional[str] = None
+    es_central: Optional[bool] = None
 
 # ————— create —————
 @router.post("", status_code=201)
@@ -74,6 +76,7 @@ async def crear_centro(payload: CentroCreate, db: AsyncSession = Depends(get_db)
         estado="activo",
         # NUEVO
         uuid_equipo=uuid_equipo,
+        es_central=bool(payload.es_central),
     )
     db.add(cen)
     await db.commit()
@@ -87,6 +90,7 @@ async def crear_centro(payload: CentroCreate, db: AsyncSession = Depends(get_db)
         "estado": cen.estado,
         # NUEVO
         "uuid_equipo": cen.uuid_equipo,
+        "es_central": bool(cen.es_central),
     }
 
 # ————— list —————
@@ -110,6 +114,7 @@ async def listar_centros(
             "estado": c.estado,
             # NUEVO
             "uuid_equipo": c.uuid_equipo,
+            "es_central": bool(c.es_central),
         }
         for c in centros
     ]
@@ -134,6 +139,8 @@ async def actualizar_centro(centro_id: int, payload: CentroUpdate, db: AsyncSess
             if clash:
                 raise HTTPException(status_code=409, detail="uuid_equipo ya está en uso por otro centro")
             cen.uuid_equipo = new_uuid
+    if payload.es_central is not None:
+        cen.es_central = bool(payload.es_central)
 
     await db.commit()
     await db.refresh(cen)
@@ -145,6 +152,7 @@ async def actualizar_centro(centro_id: int, payload: CentroUpdate, db: AsyncSess
         "grabacion": cen.grabacion,
         "estado": cen.estado,
         "uuid_equipo": cen.uuid_equipo,
+        "es_central": bool(cen.es_central),
     }
 
 
@@ -210,6 +218,7 @@ async def resolve_por_uuid(uuid_equipo: str, db: AsyncSession = Depends(get_db))
         "dispositivo_id": dispositivo_id,
         "uuid_equipo": cen.uuid_equipo,
         "nombre": cen.nombre,
+        "es_central": bool(cen.es_central),
     }
 
 # arriba del archivo (global):

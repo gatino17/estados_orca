@@ -250,6 +250,9 @@ function DashboardShell({
     }
   });
   const [totalRows, setTotalRows] = useState(0);
+  const [totalCentrosCuenta, setTotalCentrosCuenta] = useState(0);
+  const [totalCentrales, setTotalCentrales] = useState(0);
+  const [centrales, setCentrales] = useState([]);
   const [totalPages, setTotalPages] = useState(1);
   const [totalSinImagen, setTotalSinImagen] = useState(0);
   const [missingNamesTotal, setMissingNamesTotal] = useState([]);
@@ -295,6 +298,9 @@ function DashboardShell({
         statusMap: map,
         ts: now,
         total: Number(captData.total || nextRows.length || 0),
+        totalCentros: Number(captData.total_centros ?? captData.total ?? nextRows.length ?? 0),
+        totalCentrales: Number(captData.total_centrales || 0),
+        centrales: Array.isArray(captData.centrales) ? captData.centrales : [],
         totalPages: Number(captData.total_pages || 1),
       };
     } catch {}
@@ -427,7 +433,11 @@ function DashboardShell({
       const map = {};
       for (const it of items) map[it.centro_id] = { online: !!it.online, last_seen: it.last_seen || null };
       setStatusMap(map);
-      setTotalRows(Number(data?.total || items.length || 0));
+      const nextTotalRows = Number(data?.total || items.length || 0);
+      setTotalRows(nextTotalRows);
+      setTotalCentrosCuenta(Number(data?.total_centros ?? nextTotalRows));
+      setTotalCentrales(Number(data?.total_centrales || 0));
+      setCentrales(Array.isArray(data?.centrales) ? data.centrales : []);
       setTotalSinImagen(Number(data?.total_sin_imagen || 0));
       setTotalPages(Number(data?.total_pages || 1));
       setMissingNamesTotal(Array.isArray(data?.sin_imagen_nombres) ? data.sin_imagen_nombres : []);
@@ -443,6 +453,9 @@ function DashboardShell({
       setRows([]);
       setStatusMap({});
       setTotalRows(0);
+      setTotalCentrosCuenta(0);
+      setTotalCentrales(0);
+      setCentrales([]);
       setTotalPages(1);
       setTotalSinImagen(0);
       setMissingNamesTotal([]);
@@ -527,7 +540,7 @@ function DashboardShell({
     });
   }, [rows, statusMap]);
 
-  const totalCentros = totalRows || mergedRows?.length || 0;
+  const totalCentros = totalCentrosCuenta ?? mergedRows?.length ?? 0;
 
   // PDF
   async function descargarPdf() {
@@ -627,10 +640,16 @@ function DashboardShell({
                 setRows(cached.rows);
                 setStatusMap(cached.statusMap);
                 setTotalRows(cached.total || cached.rows?.length || 0);
+                setTotalCentrosCuenta(cached.totalCentros ?? cached.total ?? cached.rows?.length ?? 0);
+                setTotalCentrales(cached.totalCentrales || 0);
+                setCentrales(cached.centrales || []);
                 setTotalPages(cached.totalPages || 1);
               } else {
                 setRows([]);
                 setTotalRows(0);
+                setTotalCentrosCuenta(0);
+                setTotalCentrales(0);
+                setCentrales([]);
                 setTotalPages(1);
               }
               setCliente(c);
@@ -1038,12 +1057,22 @@ function DashboardShell({
                       const updated = Array.isArray(list?.items) && list.items.length ? list.items[0] : null;
                       if (!updated) return;
                       setRows((prev) => (prev || []).map((it) => (it.centro_id === updated.centro_id ? updated : it)));
+                      if (updated.es_central) {
+                        setCentrales((prev) => {
+                          const exists = (prev || []).some((it) => it.centro_id === updated.centro_id);
+                          if (!exists) return [updated, ...(prev || [])];
+                          return (prev || []).map((it) => (it.centro_id === updated.centro_id ? updated : it));
+                        });
+                      }
                     } catch {}
                   }}
                   refreshStatus={() => loadCapturas({ silent: true })}
                   page={page}
                   pageSize={pageSize}
                   total={totalRows}
+                  totalCentros={totalCentros}
+                  totalCentrales={totalCentrales}
+                  centrales={centrales}
                   totalPages={totalPages}
                   totalSinImagen={totalSinImagen}
                   missingNamesTotal={missingNamesTotal}

@@ -452,6 +452,7 @@ async def listar_capturas(
             Centro.cliente_id.label("cliente_id"),
             Centro.nombre.label("centro_nombre"),
             Centro.uuid_equipo.label("uuid_equipo"),
+            Centro.es_central.label("es_central"),
             Centro.observacion.label("centro_observacion"),
             Centro.grabacion.label("centro_grabacion"),
             Centro.last_seen.label("last_seen"),
@@ -496,6 +497,16 @@ async def listar_capturas(
     total_res = await db.execute(select(func.count()).select_from(subq))
     total = int(total_res.scalar_one() or 0)
 
+    total_centros_res = await db.execute(
+        select(func.count()).select_from(subq).where(subq.c.es_central.is_(False))
+    )
+    total_centros = int(total_centros_res.scalar_one() or 0)
+
+    total_centrales_res = await db.execute(
+        select(func.count()).select_from(subq).where(subq.c.es_central.is_(True))
+    )
+    total_centrales = int(total_centrales_res.scalar_one() or 0)
+
     # conteo de centros sin imagen (ultima_version_id es null)
     sin_img_res = await db.execute(
         select(func.count()).select_from(subq).where(subq.c.ver_id.is_(None))
@@ -524,14 +535,7 @@ async def listar_capturas(
 
     offset = max(0, (page - 1) * page_size)
 
-    rows = (
-        await db.execute(
-            base.order_by(Centro.nombre.asc(), Centro.id.asc()).offset(offset).limit(page_size)
-        )
-    ).mappings().all()
-
-    items = []
-    for r in rows:
+    def build_item(r):
         last_seen_dt = r["last_seen"]
         online_flag = bool(last_seen_dt and (now - last_seen_dt) <= ONLINE_THRESHOLD)
         obs = r["cap_observacion"] if r["cap_observacion"] not in (None, "") else r["centro_observacion"]
@@ -546,12 +550,13 @@ async def listar_capturas(
             estado_val = "sin_reporte"
             fecha_val = target
 
-        items.append({
+        return {
             "id": cap_id,
             "cliente_id": r["cliente_id"],
             "centro_id": r["centro_id"],
             "nombre": r["centro_nombre"],
             "uuid_equipo": r["uuid_equipo"],
+            "es_central": bool(r["es_central"]),
             "last_seen": last_seen_dt.isoformat() if last_seen_dt else None,
             "online": online_flag,
             "observacion": obs,
@@ -561,13 +566,33 @@ async def listar_capturas(
             "estado": estado_val,
             "ultima_version_id": ver_id,
             "ultima_imagen_url": f"/api/capturas/{cap_id}/ultima/image" if (cap_id and ver_id) else None,
-        })
+        }
+
+    rows = (
+        await db.execute(
+            base.order_by(Centro.nombre.asc(), Centro.id.asc()).offset(offset).limit(page_size)
+        )
+    ).mappings().all()
+
+    items = [build_item(r) for r in rows]
+
+    centrales_rows = (
+        await db.execute(
+            base.where(Centro.es_central.is_(True))
+            .order_by(Centro.nombre.asc(), Centro.id.asc())
+            .limit(12)
+        )
+    ).mappings().all()
+    centrales = [build_item(r) for r in centrales_rows]
 
     total_pages = max(1, (total + page_size - 1) // page_size) if page_size else 1
 
     return {
         "items": items,
         "total": total,
+        "total_centros": total_centros,
+        "total_centrales": total_centrales,
+        "centrales": centrales,
         "total_sin_imagen": total_sin_imagen,
         "sin_imagen_nombres": missing_names,
         "sin_imagen_centros": missing_centers,

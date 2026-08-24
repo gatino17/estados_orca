@@ -15,6 +15,7 @@ export default function CreateCentroModal({ open, onClose, base, cliente, onCrea
   const [uuidTouched, setUuidTouched] = useState(false);
   const [observacion, setObservacion] = useState("");
   const [grabacion, setGrabacion] = useState("");
+  const [esCentral, setEsCentral] = useState(false);
   const [fecha, setFecha] = useState(() => {
     const d = new Date();
     const m = String(d.getMonth() + 1).padStart(2, "0");
@@ -33,6 +34,10 @@ export default function CreateCentroModal({ open, onClose, base, cliente, onCrea
     if (!uuidTouched) setUuidEquipo(slugify(nombre));
   }, [nombre, uuidTouched]);
 
+  useEffect(() => {
+    if (!open) setEsCentral(false);
+  }, [open]);
+
   if (!open) return null;
 
   async function handleSubmit(e) {
@@ -50,6 +55,7 @@ export default function CreateCentroModal({ open, onClose, base, cliente, onCrea
           observacion: observacion || null,
           grabacion: grabacion || null,
           uuid_equipo: uuidEquipo || null,
+          es_central: esCentral,
         }),
       });
       if (!r1.ok) throw new Error((await r1.text()) || `HTTP ${r1.status}`);
@@ -88,6 +94,7 @@ export default function CreateCentroModal({ open, onClose, base, cliente, onCrea
       }
 
       onCreated?.();
+      setEsCentral(false);
       onClose();
     } catch (e) {
       setError(e.message);
@@ -131,6 +138,21 @@ export default function CreateCentroModal({ open, onClose, base, cliente, onCrea
               Usa este valor en <code>UUID_EQUIPO</code> del <code>agent.py</code>.
             </p>
           </div>
+
+          <label className="col-span-2 flex items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+            <input
+              type="checkbox"
+              checked={esCentral}
+              onChange={(e) => setEsCentral(e.target.checked)}
+              className="h-4 w-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500"
+            />
+            <div>
+              <div className="text-sm font-medium text-slate-700">Marcar como central</div>
+              <p className="text-[11px] text-slate-500">
+                No suma en total de centros; se muestra aparte como central.
+              </p>
+            </div>
+          </label>
 
           <div className="col-span-2">
             <label className="block text-sm text-slate-600">Observación (opcional)</label>

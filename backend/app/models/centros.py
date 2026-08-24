@@ -24,4 +24,5 @@ class Centro(Base):
     grabacion: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP, default=datetime.utcnow)
     uuid_equipo: Mapped[str | None] = mapped_column(String(80), unique=True, index=True)
+    es_central: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     last_seen = mapped_column(DateTime(timezone=True), nullable=True)  # UTC naive u opcional TZ-aware

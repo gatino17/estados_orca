@@ -1,6 +1,6 @@
 ﻿# app/routers/metrics.py
 from fastapi import APIRouter, Depends
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
@@ -16,7 +16,8 @@ async def centros_por_cliente(db: AsyncSession = Depends(get_db)):
         select(
             Cliente.id.label("cliente_id"),
             Cliente.nombre.label("cliente_nombre"),
-            func.count(Centro.id).label("total_centros"),
+            func.sum(case((Centro.es_central.is_(False), 1), else_=0)).label("total_centros"),
+            func.sum(case((Centro.es_central.is_(True), 1), else_=0)).label("total_centrales"),
         )
         .join(Centro, Centro.cliente_id == Cliente.id, isouter=True)
         .group_by(Cliente.id, Cliente.nombre)
@@ -30,11 +31,18 @@ async def centros_por_cliente(db: AsyncSession = Depends(get_db)):
             "cliente_id": r.cliente_id,
             "cliente_nombre": r.cliente_nombre,
             "total_centros": int(r.total_centros or 0),
+            "total_centrales": int(r.total_centrales or 0),
         }
         for r in rows
     ]
     total_clientes = len(items)
     total_centros = sum(i["total_centros"] for i in items)
-    return {"items": items, "total_clientes": total_clientes, "total_centros": total_centros}
+    total_centrales = sum(i["total_centrales"] for i in items)
+    return {
+        "items": items,
+        "total_clientes": total_clientes,
+        "total_centros": total_centros,
+        "total_centrales": total_centrales,
+    }
 
 

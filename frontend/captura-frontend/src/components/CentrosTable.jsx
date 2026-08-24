@@ -65,6 +65,9 @@ export default function CentrosTable({
   page,
   pageSize,
   total,
+  totalCentros = null,
+  totalCentrales = 0,
+  centrales = [],
   totalPages,
   onPageChange,
   onPageSizeChange,
@@ -83,16 +86,25 @@ export default function CentrosTable({
   const [editRow, setEditRow] = useState(null);
   const startTimesRef = useRef({});
   const [missingImages, setMissingImages] = useState(new Set());
+  const [expandedCentralIds, setExpandedCentralIds] = useState(new Set());
 
   const safePage = Math.max(1, page || 1);
   const safePageSize = Math.max(1, pageSize || 1);
   const safeTotal = Math.max(0, total || 0);
+  const safeTotalCentros = Math.max(0, totalCentros ?? safeTotal);
+  const safeTotalCentrales = Math.max(0, totalCentrales || 0);
   const safeTotalPages = Math.max(1, totalPages || 1);
   const startIdx = safeTotal ? (safePage - 1) * safePageSize + 1 : 0;
   const endIdx = safeTotal ? Math.min(startIdx + safePageSize - 1, safeTotal) : 0;
   const viewRows = useMemo(() => rows || [], [rows]);
+  const centralRows = useMemo(() => {
+    if (Array.isArray(centrales) && centrales.length) return centrales;
+    return (rows || []).filter((r) => r?.es_central);
+  }, [centrales, rows]);
   const hasStatus = useMemo(() => Object.values(statusById).some(Boolean), [statusById]);
   const missingCount = totalSinImagen || missingImages.size;
+  const statsCount = 1 + (safeTotalCentrales > 0 ? 1 : 0) + (missingCount > 0 ? 1 : 0);
+  const statsGridCols = statsCount >= 3 ? "lg:grid-cols-3" : statsCount === 2 ? "md:grid-cols-2" : "";
   const missingNames = useMemo(() => {
     if (Array.isArray(missingNamesTotal) && missingNamesTotal.length) return missingNamesTotal;
     if (!rows?.length) return [];
@@ -170,28 +182,39 @@ export default function CentrosTable({
 
   async function retomar(row) {
     const rowKey = row.id ?? row.centro_id;
+    if (row?.es_central && row?.centro_id) {
+      setExpandedCentralIds((prev) => {
+        const next = new Set(prev);
+        next.add(row.centro_id);
+        return next;
+      });
+    }
+    setBusyId(rowKey);
     startTimesRef.current[rowKey] = Date.now();
 
     if (!row.id) {
-      const qs = new URLSearchParams({ fecha: row.fecha_reporte }).toString();
-      const res = await fetch(
-        `${base}/api/capturas/centro/${row.centro_id}/retomar?${qs}`,
-        { method: "POST" }
-      );
-      if (!res.ok) {
+      try {
+        const qs = new URLSearchParams({ fecha: row.fecha_reporte }).toString();
+        const res = await fetch(
+          `${base}/api/capturas/centro/${row.centro_id}/retomar?${qs}`,
+          { method: "POST" }
+        );
+        if (!res.ok) {
+          const elapsed = Math.round((Date.now() - (startTimesRef.current[rowKey] || Date.now())) / 1000);
+          updateStatus(row.centro_id, `Error: ${await res.text()} (${elapsed}s)`);
+          return;
+        }
         const elapsed = Math.round((Date.now() - (startTimesRef.current[rowKey] || Date.now())) / 1000);
-        updateStatus(row.centro_id, `Error: ${await res.text()} (${elapsed}s)`);
-        return;
+        updateStatus(row.centro_id, `Orden enviada (${elapsed}s)`);
+        optimisticOnlineUpdate(row);
+        onRefreshRow?.(row);
+      } finally {
+        setBusyId(null);
       }
-      const elapsed = Math.round((Date.now() - (startTimesRef.current[rowKey] || Date.now())) / 1000);
-      updateStatus(row.centro_id, `Orden enviada (${elapsed}s)`);
-      optimisticOnlineUpdate(row);
-      onRefreshRow?.(row);
       return;
     }
 
-    setBusyId(row.id);
-    updateStatus(row.id, "Solicitando captura...");
+    updateStatus(rowKey, "Solicitando captura...");
     const before = await getEstado(row.id);
 
     try {
@@ -200,7 +223,7 @@ export default function CentrosTable({
       if (!res.ok) throw new Error(await res.text());
 
       optimisticOnlineUpdate(row);
-      updateStatus(row.id, "Capturando en el equipo...");
+      updateStatus(rowKey, "Capturando en el equipo...");
 
       const start = Date.now();
       const timer = setInterval(async () => {
@@ -208,7 +231,7 @@ export default function CentrosTable({
           clearInterval(timer);
           setBusyId(null);
           const elapsed = Math.round((Date.now() - (startTimesRef.current[rowKey] || start)) / 1000);
-          updateStatus(row.id, `Tiempo de espera agotado (${elapsed}s)`);
+          updateStatus(rowKey, `Tiempo de espera agotado (${elapsed}s)`);
           return;
         }
         const st = await getEstado(row.id);
@@ -216,7 +239,7 @@ export default function CentrosTable({
           clearInterval(timer);
           setBusyId(null);
           const elapsed = Math.round((Date.now() - (startTimesRef.current[rowKey] || start)) / 1000);
-          updateStatus(row.id, `Actualizada en ${elapsed}s`);
+          updateStatus(rowKey, `Actualizada en ${elapsed}s`);
           onRefreshRow?.(row);
         } else {
           /* noop */
@@ -225,7 +248,7 @@ export default function CentrosTable({
     } catch (e) {
       setBusyId(null);
       const elapsed = Math.round((Date.now() - (startTimesRef.current[rowKey] || Date.now())) / 1000);
-      updateStatus(row.id, `Error: ${e.message} (${elapsed}s)`);
+      updateStatus(rowKey, `Error: ${e.message} (${elapsed}s)`);
     }
   }
 
@@ -316,7 +339,7 @@ export default function CentrosTable({
               </div>
             )}
           </div>
-          <div className="grid w-full grid-cols-1 gap-3 md:grid-cols-2">
+          <div className={`grid w-full grid-cols-1 gap-3 ${statsGridCols}`}>
             <div className="rounded-lg bg-gradient-to-r from-sky-500 via-blue-500 to-indigo-500 p-[1px] shadow-sm">
               <div className="rounded-[7px] bg-white px-4 py-3">
                 <div className="flex items-center justify-between gap-4">
@@ -330,7 +353,7 @@ export default function CentrosTable({
                   </div>
                   <div className="text-right">
                     <div className="text-4xl font-bold leading-none text-sky-700">
-                      {safeTotal}
+                      {safeTotalCentros}
                     </div>
                     <div className="mt-1 text-[11px] font-medium text-slate-500">
                       centros
@@ -340,6 +363,94 @@ export default function CentrosTable({
               </div>
             </div>
 
+            {safeTotalCentrales > 0 && (
+              <div className="rounded-lg bg-gradient-to-r from-cyan-500 via-teal-500 to-emerald-500 p-[1px] shadow-sm">
+                <div className="rounded-[7px] bg-white px-4 py-3">
+                  <div className="flex flex-col gap-3">
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <div className="text-xs font-bold uppercase tracking-wide text-teal-900">
+                          Total centrales
+                        </div>
+                        <div className="mt-1 text-[11px] text-slate-500">
+                          Solicitud directa y ultima captura
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-4xl font-bold leading-none text-teal-700">
+                          {safeTotalCentrales}
+                        </div>
+                        <div className="mt-1 text-[11px] font-medium text-slate-500">
+                          centrales
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-2">
+                      {centralRows.slice(0, 4).map((central) => {
+                        const centralKey = central.id ?? central.centro_id;
+                        const isBusy = busyId === centralKey;
+                        const showCentralImage = expandedCentralIds.has(central.centro_id);
+                        return (
+                          <div
+                            key={central.centro_id}
+                            className="rounded-lg border border-teal-100 bg-teal-50/60 p-2"
+                          >
+                            <div className="flex min-w-0 items-center justify-between gap-3">
+                              <div className="min-w-0">
+                                <div className="truncate text-xs font-semibold text-slate-800" title={central.nombre}>
+                                  {central.nombre || `Centro ${central.centro_id}`}
+                                </div>
+                                <div className="mt-0.5 truncate text-[11px] text-slate-500">
+                                  {statusById[centralKey] || central.estado || "pendiente"}
+                                </div>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => retomar(central)}
+                                disabled={isBusy}
+                                className="shrink-0 rounded-md bg-teal-600 px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-teal-700 disabled:cursor-wait disabled:opacity-60"
+                              >
+                                {isBusy ? "Capturando..." : "Solicitar captura"}
+                              </button>
+                            </div>
+                            {showCentralImage && (
+                              <div className="mt-2">
+                                {central.ultima_imagen_url ? (
+                                  <img
+                                    src={thumb(central)}
+                                    srcSet={thumbSrcSet(central)}
+                                    sizes="220px"
+                                    loading="lazy"
+                                    decoding="async"
+                                    className="h-24 w-full cursor-zoom-in rounded-md object-cover ring-1 ring-teal-200"
+                                    onClick={() => openImage(central)}
+                                    alt=""
+                                  />
+                                ) : (
+                                  <div className="h-24 w-full rounded-md bg-gradient-to-br from-rose-500 via-red-400 to-orange-300 p-[1px]">
+                                    <div className="grid h-full w-full place-items-center rounded-[5px] bg-rose-50 text-xs font-semibold text-rose-700">
+                                      Sin imagen
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                      {centralRows.length > 4 && (
+                        <div className="text-[11px] font-medium text-teal-700">
+                          +{centralRows.length - 4} centrales mas
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {missingCount > 0 && (
             <div className="rounded-lg bg-gradient-to-r from-rose-500 via-red-400 to-orange-300 p-[1px] shadow-sm">
               <div className="rounded-[7px] bg-rose-50 px-4 py-3">
                 <div className="flex flex-col gap-2">
@@ -363,8 +474,7 @@ export default function CentrosTable({
                       </div>
                     </div>
                   </div>
-                  {missingCount > 0 ? (
-                    <div className="flex min-w-0 flex-wrap gap-1.5">
+                  <div className="flex min-w-0 flex-wrap gap-1.5">
                       {missingCenters.slice(0, 8).map((centro, idx) => {
                         const name = centro?.nombre || missingNames[idx] || `Centro ${centro?.centro_id || idx + 1}`;
                         return (
@@ -384,15 +494,11 @@ export default function CentrosTable({
                           +{missingCenters.length - 8} mas
                         </span>
                       )}
-                    </div>
-                  ) : (
-                    <span className="rounded-full bg-white px-2.5 py-1 text-[11px] font-semibold text-emerald-700 ring-1 ring-emerald-200">
-                      Todos con imagen
-                    </span>
-                  )}
+                  </div>
                 </div>
               </div>
             </div>
+            )}
           </div>
         </div>
         <table className="min-w-full text-sm">
@@ -436,6 +542,11 @@ export default function CentrosTable({
                       <span title={row.online ? "Conectado" : "Desconectado"}>
                         {row.nombre || `Centro ${row.centro_id}`}
                       </span>
+                      {row.es_central && (
+                        <span className="rounded-full bg-teal-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-teal-700 ring-1 ring-teal-200">
+                          Central
+                        </span>
+                      )}
                     </div>
 
                     {(row.observacion || row.grabacion) && (
@@ -505,13 +616,13 @@ export default function CentrosTable({
                     <div className="flex flex-wrap gap-2">
                       <button
                         onClick={() => retomar(row)}
-                        disabled={row.id ? busyId === row.id : false}
+                        disabled={busyId === (row.id ?? row.centro_id)}
                         className={[
                           btn.base,
                           btn.sky,
                           btn.disabled,
                           "flex items-center gap-2",
-                          row.id && busyId === row.id ? "cursor-wait" : "",
+                          busyId === (row.id ?? row.centro_id) ? "cursor-wait" : "",
                         ].join(" ")}
                         title="Solicitar nueva captura"
                         aria-label="Solicitar nueva captura"
@@ -531,7 +642,7 @@ export default function CentrosTable({
                           <path d="M7 7l2-3h6l2 3" />
                           <circle cx="12" cy="14" r="3" />
                         </svg>
-                        <span className="text-sm">{row.id && busyId === row.id ? "Capturando..." : ""}</span>
+                        <span className="text-sm">{busyId === (row.id ?? row.centro_id) ? "Capturando..." : ""}</span>
                       </button>
 
                       {row.id && (

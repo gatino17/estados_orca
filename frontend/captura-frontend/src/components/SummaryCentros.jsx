@@ -6,7 +6,7 @@ function initials(name = "") {
 }
 
 export default function SummaryCentros({ base, onChanged, canDelete = true }) {
-  const [data, setData] = useState({ items: [], total_clientes: 0, total_centros: 0 });
+  const [data, setData] = useState({ items: [], total_clientes: 0, total_centros: 0, total_centrales: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -120,7 +120,7 @@ export default function SummaryCentros({ base, onChanged, canDelete = true }) {
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="rounded-2xl bg-white shadow ring-1 ring-slate-200 p-4">
           <div className="text-xs text-slate-500">Total clientes</div>
           <div className="text-2xl font-semibold text-slate-900">{data.total_clientes}</div>
@@ -128,6 +128,10 @@ export default function SummaryCentros({ base, onChanged, canDelete = true }) {
         <div className="rounded-2xl bg-white shadow ring-1 ring-slate-200 p-4">
           <div className="text-xs text-slate-500">Total centros</div>
           <div className="text-2xl font-semibold text-slate-900">{data.total_centros}</div>
+        </div>
+        <div className="rounded-2xl bg-white shadow ring-1 ring-slate-200 p-4">
+          <div className="text-xs text-slate-500">Total centrales</div>
+          <div className="text-2xl font-semibold text-slate-900">{data.total_centrales || 0}</div>
         </div>
         <div className="rounded-2xl bg-white shadow ring-1 ring-slate-200 p-4">
           <div className="text-xs text-slate-500">Promedio por cliente</div>
@@ -166,6 +170,7 @@ export default function SummaryCentros({ base, onChanged, canDelete = true }) {
                 <tr>
                   <th className="px-4 py-2 text-left">Cliente</th>
                   <th className="px-4 py-2 text-right">Total centros</th>
+                  <th className="px-4 py-2 text-right">Centrales</th>
                   <th className="px-4 py-2 text-right">Acciones</th>
                 </tr>
               </thead>
@@ -182,6 +187,9 @@ export default function SummaryCentros({ base, onChanged, canDelete = true }) {
                     </td>
                     <td className="px-4 py-2 text-right font-mono text-slate-900">
                       {it.total_centros}
+                    </td>
+                    <td className="px-4 py-2 text-right font-mono text-slate-900">
+                      {it.total_centrales || 0}
                     </td>
                     <td className="px-4 py-2">
                       <div className="flex justify-end gap-2">
@@ -205,7 +213,7 @@ export default function SummaryCentros({ base, onChanged, canDelete = true }) {
                 ))}
                 {data.items.length === 0 && (
                   <tr>
-                    <td colSpan={3} className="px-4 py-6 text-center text-sm text-slate-500">
+                    <td colSpan={4} className="px-4 py-6 text-center text-sm text-slate-500">
                       No hay datos para mostrar.
                     </td>
                   </tr>
@@ -217,6 +225,9 @@ export default function SummaryCentros({ base, onChanged, canDelete = true }) {
                     <td className="px-4 py-2 text-right font-semibold text-slate-700">Total</td>
                     <td className="px-4 py-2 text-right font-semibold text-slate-900">
                       {data.total_centros}
+                    </td>
+                    <td className="px-4 py-2 text-right font-semibold text-slate-900">
+                      {data.total_centrales || 0}
                     </td>
                     <td />
                   </tr>
