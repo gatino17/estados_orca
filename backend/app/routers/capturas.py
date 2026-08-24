@@ -404,6 +404,7 @@ async def listar_capturas(
     page_size: int = Query(15, ge=1, le=100, description="Filas por pagina"),
     estado: str | None = Query(None, description="Filtrar por estado exacto (case-insensitive)"),
     online: bool | None = Query(None, description="Filtrar por estado online calculado"),
+    search: str | None = Query(None, description="Buscar por nombre de centro o uuid_equipo"),
     threshold_sec: int = Query(50, ge=5, le=3600, description="Umbral de online en segundos"),
     db: AsyncSession = Depends(get_db),
 ):
@@ -471,6 +472,16 @@ async def listar_capturas(
     if centro_id:
         base = base.where(Centro.id == centro_id)
 
+    if search:
+        term = f"%{search.strip()}%"
+        if search.strip():
+            base = base.where(
+                or_(
+                    Centro.nombre.ilike(term),
+                    Centro.uuid_equipo.ilike(term),
+                )
+            )
+
     if estado:
         base = base.where(func.lower(cap_sq.c.cap_estado) == estado.lower())
 
@@ -498,9 +509,17 @@ async def listar_capturas(
         .order_by(subq.c.centro_nombre.asc())
         .limit(80)
     )
+    missing_rows = missing_res.mappings().all()
     missing_names = [
-        row.centro_nombre or f"Centro {row.centro_id}"
-        for row in missing_res
+        row["centro_nombre"] or f"Centro {row['centro_id']}"
+        for row in missing_rows
+    ]
+    missing_centers = [
+        {
+            "centro_id": row["centro_id"],
+            "nombre": row["centro_nombre"] or f"Centro {row['centro_id']}",
+        }
+        for row in missing_rows
     ]
 
     offset = max(0, (page - 1) * page_size)
@@ -551,6 +570,7 @@ async def listar_capturas(
         "total": total,
         "total_sin_imagen": total_sin_imagen,
         "sin_imagen_nombres": missing_names,
+        "sin_imagen_centros": missing_centers,
         "page": page,
         "page_size": page_size,
         "total_pages": total_pages,

@@ -133,6 +133,9 @@ async def pull_orden(
         if wait <= 0 or datetime.now(timezone.utc) >= deadline:
             return {"orden": None}
 
+        # Libera la conexion de BD mientras el long-poll espera.
+        await db.rollback()
+
         # dormir ~1s y reintentar
         await asyncio.sleep(1.0)
 

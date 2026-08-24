@@ -126,8 +126,10 @@ export default function CentroCard({ base, row, selectedFecha }) {
               onClick={() => setOpen(true)}
             />
           ) : (
-            <div className="w-full h-36 rounded-lg border bg-slate-100 grid place-items-center text-slate-500 text-sm">
-              Sin imagen
+            <div className="w-full h-36 rounded-lg bg-gradient-to-br from-rose-500 via-red-400 to-orange-300 p-[2px] shadow-sm">
+              <div className="h-full w-full rounded-[7px] bg-rose-50 grid place-items-center text-sm font-semibold text-rose-700">
+                Sin imagen
+              </div>
             </div>
           )}
           <div className="text-[11px] text-slate-500 mt-1">

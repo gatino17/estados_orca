@@ -35,6 +35,16 @@ function fmtLastSeen(iso) {
   }
 }
 
+function fmtDate(value) {
+  if (!value) return "--";
+  const parts = String(value).split("-");
+  if (parts.length === 3) {
+    const [year, month, day] = parts;
+    return `${day}-${month}-${year}`;
+  }
+  return value;
+}
+
 function estadoPillClasses(estadoRaw) {
   const s = String(estadoRaw || "").toLowerCase();
   if (/(ok|exito|éxito|actualizada|actualizado|hecho)/.test(s))
@@ -61,6 +71,9 @@ export default function CentrosTable({
   canDelete = true,
   totalSinImagen = 0,
   missingNamesTotal = [],
+  missingCentersTotal = [],
+  highlightedCentroId = null,
+  onLocateCentro,
 }) {
   const [imgOpen, setImgOpen] = useState(false);
   const [imgSrc, setImgSrc] = useState("");
@@ -87,6 +100,18 @@ export default function CentrosTable({
       .filter((r) => !r?.ultima_imagen_url)
       .map((r) => r.nombre || `Centro ${r.centro_id || r.id}`);
   }, [rows, missingNamesTotal]);
+  const missingCenters = useMemo(() => {
+    if (Array.isArray(missingCentersTotal) && missingCentersTotal.length) return missingCentersTotal;
+    if (!rows?.length) {
+      return missingNames.map((name) => ({ nombre: name }));
+    }
+    return rows
+      .filter((r) => !r?.ultima_imagen_url)
+      .map((r) => ({
+        centro_id: r.centro_id,
+        nombre: r.nombre || `Centro ${r.centro_id || r.id}`,
+      }));
+  }, [missingCentersTotal, missingNames, rows]);
 
   useEffect(() => {
     const next = new Set();
@@ -276,7 +301,7 @@ export default function CentrosTable({
                 title="Ultima"
               >{">>"}</button>
             </div>
-            {missingCount > 0 && (
+            {false && missingCount > 0 && (
               <div className="flex items-center gap-2 rounded-full px-3 py-2 text-xs text-rose-800 font-semibold bg-gradient-to-r from-rose-50 via-rose-100 to-orange-50 ring-1 ring-rose-200 shadow-sm">
                 <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-rose-200 text-rose-800 text-[10px]">
                   !
@@ -291,10 +316,89 @@ export default function CentrosTable({
               </div>
             )}
           </div>
+          <div className="grid w-full grid-cols-1 gap-3 md:grid-cols-2">
+            <div className="rounded-lg bg-gradient-to-r from-sky-500 via-blue-500 to-indigo-500 p-[1px] shadow-sm">
+              <div className="rounded-[7px] bg-white px-4 py-3">
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <div className="text-xs font-bold uppercase tracking-wide text-sky-900">
+                      Total de centros
+                    </div>
+                    <div className="mt-1 text-[11px] text-slate-500">
+                      Cliente seleccionado
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-4xl font-bold leading-none text-sky-700">
+                      {safeTotal}
+                    </div>
+                    <div className="mt-1 text-[11px] font-medium text-slate-500">
+                      centros
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-lg bg-gradient-to-r from-rose-500 via-red-400 to-orange-300 p-[1px] shadow-sm">
+              <div className="rounded-[7px] bg-rose-50 px-4 py-3">
+                <div className="flex flex-col gap-2">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <div className="text-xs font-bold uppercase tracking-wide text-rose-900">
+                        Sin imagen
+                      </div>
+                      <div className="mt-1 text-[11px] text-rose-700">
+                        {missingCount > 0
+                          ? "Presiona un centro para ubicarlo en la tabla."
+                          : "No hay centros pendientes de imagen."}
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-4xl font-bold leading-none text-rose-700">
+                        {missingCount}
+                      </div>
+                      <div className="mt-1 text-[11px] font-medium text-rose-700">
+                        centros
+                      </div>
+                    </div>
+                  </div>
+                  {missingCount > 0 ? (
+                    <div className="flex min-w-0 flex-wrap gap-1.5">
+                      {missingCenters.slice(0, 8).map((centro, idx) => {
+                        const name = centro?.nombre || missingNames[idx] || `Centro ${centro?.centro_id || idx + 1}`;
+                        return (
+                          <button
+                            key={`${centro?.centro_id || name}-${idx}`}
+                            type="button"
+                            onClick={() => onLocateCentro?.(centro)}
+                            className="max-w-[180px] truncate rounded-full bg-white px-2.5 py-1 text-[11px] font-semibold text-rose-800 ring-1 ring-rose-200 hover:bg-rose-100 focus:outline-none focus:ring-2 focus:ring-rose-400"
+                            title={name}
+                          >
+                            {name}
+                          </button>
+                        );
+                      })}
+                      {missingCenters.length > 8 && (
+                        <span className="rounded-full bg-rose-100 px-2.5 py-1 text-[11px] font-semibold text-rose-700 ring-1 ring-rose-200">
+                          +{missingCenters.length - 8} mas
+                        </span>
+                      )}
+                    </div>
+                  ) : (
+                    <span className="rounded-full bg-white px-2.5 py-1 text-[11px] font-semibold text-emerald-700 ring-1 ring-emerald-200">
+                      Todos con imagen
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
         <table className="min-w-full text-sm">
           <thead className="text-slate-700 text-[12px] uppercase tracking-wide">
             <tr className="sticky top-0 z-10 bg-slate-50/90 backdrop-blur supports-[backdrop-filter]:bg-slate-50/60">
+              <th className="px-3 md:px-4 py-3 text-left w-16">N°</th>
               <th className="px-3 md:px-4 py-3 text-left">Centro</th>
               <th className="px-3 md:px-4 py-3 text-left hidden sm:table-cell">Agente</th>
               <th className="px-3 md:px-4 py-3 text-left hidden sm:table-cell">Estado</th>
@@ -306,15 +410,26 @@ export default function CentrosTable({
           </thead>
 
           <tbody className="divide-y divide-slate-200">
-            {viewRows.map((row) => {
+            {viewRows.map((row, index) => {
               const key = row.id ?? `centro-${row.centro_id}`;
               const estadoCls = estadoPillClasses(row.estado);
+              const rowNumber = safeTotal ? startIdx + index : index + 1;
 
               return (
                 <tr
                   key={key}
-                  className="odd:bg-white even:bg-slate-50/40 hover:bg-slate-100/60 transition-colors"
+                  data-centro-id={row.centro_id}
+                  className={[
+                    Number(highlightedCentroId) === Number(row.centro_id)
+                      ? "bg-rose-50 outline outline-2 outline-rose-400 outline-offset-[-2px]"
+                      : "odd:bg-white even:bg-slate-50/40 hover:bg-slate-100/60",
+                    "transition-colors",
+                  ].join(" ")}
                 >
+                  <td className="px-3 md:px-4 py-3 align-top font-mono text-xs text-slate-500">
+                    {rowNumber}
+                  </td>
+
                   <td className="px-3 md:px-4 py-3 align-top">
                     <div className="font-medium text-slate-800 flex items-center gap-2">
                       <Dot online={row.online} />
@@ -356,7 +471,7 @@ export default function CentrosTable({
                   </td>
 
                   <td className="px-3 md:px-4 py-3 align-top font-mono hidden md:table-cell">
-                    {row.fecha_reporte}
+                    {fmtDate(row.fecha_reporte)}
                   </td>
 
                   <td className="px-3 md:px-4 py-3 align-top">
@@ -378,7 +493,11 @@ export default function CentrosTable({
                         })}
                       />
                     ) : (
-                      <div className="text-xs text-slate-500">Sin imagen</div>
+                      <div className="w-44 h-28 rounded-lg bg-gradient-to-br from-rose-500 via-red-400 to-orange-300 p-[2px] shadow-sm">
+                        <div className="h-full w-full rounded-[7px] bg-rose-50 grid place-items-center text-xs font-semibold text-rose-700">
+                          Sin imagen
+                        </div>
+                      </div>
                     )}
                   </td>
 

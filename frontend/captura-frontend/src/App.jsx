@@ -235,6 +235,8 @@ function DashboardShell({
     const day = String(d.getDate()).padStart(2, "0");
     return `${d.getFullYear()}-${m}-${day}`;
   });
+  const [searchCentro, setSearchCentro] = useState("");
+  const [debouncedSearchCentro, setDebouncedSearchCentro] = useState("");
   
   const [rows, setRows] = useState([]);
   const [page, setPage] = useState(1);
@@ -251,12 +253,16 @@ function DashboardShell({
   const [totalPages, setTotalPages] = useState(1);
   const [totalSinImagen, setTotalSinImagen] = useState(0);
   const [missingNamesTotal, setMissingNamesTotal] = useState([]);
+  const [missingCentersTotal, setMissingCentersTotal] = useState([]);
+  const [highlightedCentroId, setHighlightedCentroId] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [switchingClienteName, setSwitchingClienteName] = useState("");
   const [section, setSection] = useState("centros"); // 'centros' | 'users' | 'summary'
   const [view, setView] = useState("table");
 
   // AbortControllers para cancelar solicitudes al cambiar de cliente
   const capturasAbortRef = useRef(null);
+  const capturasRequestIdRef = useRef(0);
 
   // Cache efímera para prefetch por cliente
   const prefetchCacheRef = useRef({}); // { [clienteId]: { rows, statusMap, ts, total, totalPages } }
@@ -265,13 +271,16 @@ function DashboardShell({
     const cid = clienteObj?.id;
     if (!cid) return;
     const now = Date.now();
-    const cached = prefetchCacheRef.current[cid];
+    const search = debouncedSearchCentro.trim();
+    const cacheKey = `${cid}|${fecha}|${pageSize}|${search}`;
+    const cached = prefetchCacheRef.current[cacheKey];
     if (cached && now - cached.ts < 10000) return; // 10s TTL
 
     try {
       const qCapt = new URLSearchParams();
       qCapt.set("cliente_id", String(cid));
       if (fecha) qCapt.set("fecha", fecha);
+      if (search) qCapt.set("search", search);
       qCapt.set("page", "1");
       qCapt.set("page_size", String(pageSize));
 
@@ -281,7 +290,7 @@ function DashboardShell({
       const map = {};
       for (const it of nextRows || []) map[it.centro_id] = { online: !!it.online, last_seen: it.last_seen || null };
 
-      prefetchCacheRef.current[cid] = {
+      prefetchCacheRef.current[cacheKey] = {
         rows: nextRows,
         statusMap: map,
         ts: now,
@@ -289,7 +298,7 @@ function DashboardShell({
         totalPages: Number(captData.total_pages || 1),
       };
     } catch {}
-  }, [base, fecha, pageSize]);
+  }, [base, debouncedSearchCentro, fecha, pageSize]);
 
   // Prefetch silencioso de los primeros clientes tras cargar la lista
   useEffect(() => {
@@ -386,13 +395,15 @@ function DashboardShell({
 
   useEffect(() => {
     setPage(1);
-  }, [cliente?.id, fecha]);
+  }, [cliente?.id, fecha, debouncedSearchCentro]);
 
   // capturas
   async function loadCapturas(opts = { silent: false }) {
     const cid = opts?.clienteId ?? cliente?.id;
     if (!cid) return;
     if (!opts.silent) setLoading(true);
+    const requestId = capturasRequestIdRef.current + 1;
+    capturasRequestIdRef.current = requestId;
     try {
       // cancela una petición previa en curso
       if (capturasAbortRef.current) capturasAbortRef.current.abort();
@@ -403,7 +414,10 @@ function DashboardShell({
       q.set("cliente_id", String(cid));
       const fechaVal = opts?.fecha ?? fecha;
       if (fechaVal) q.set("fecha", fechaVal);
-      q.set("page", String(opts?.page ?? page));
+      const searchVal = opts?.search ?? debouncedSearchCentro;
+      if (searchVal?.trim()) q.set("search", searchVal.trim());
+      const requestedPage = opts?.page ?? page;
+      q.set("page", String(requestedPage));
       q.set("page_size", String(opts?.pageSize ?? pageSize));
 
       const r = await fetch(`${base}/api/capturas?${q.toString()}`, { cache: "no-store", signal: ctrl.signal });
@@ -417,9 +431,12 @@ function DashboardShell({
       setTotalSinImagen(Number(data?.total_sin_imagen || 0));
       setTotalPages(Number(data?.total_pages || 1));
       setMissingNamesTotal(Array.isArray(data?.sin_imagen_nombres) ? data.sin_imagen_nombres : []);
-      if (page > Number(data?.total_pages || 1)) {
+      setMissingCentersTotal(Array.isArray(data?.sin_imagen_centros) ? data.sin_imagen_centros : []);
+      setSwitchingClienteName("");
+      if (requestedPage > Number(data?.total_pages || 1)) {
         setPage(Number(data?.total_pages || 1) || 1);
       }
+      return data;
     } catch (e) {
       if (e && e.name === "AbortError") return; // cambio de cliente
       console.error("capturas:", e);
@@ -429,17 +446,56 @@ function DashboardShell({
       setTotalPages(1);
       setTotalSinImagen(0);
       setMissingNamesTotal([]);
+      setMissingCentersTotal([]);
     } finally {
       // limpia referencia; si otra petición se inició luego, esta no toca loading
-      capturasAbortRef.current = null;
-      if (!opts.silent) setLoading(false);
+      if (capturasRequestIdRef.current === requestId) {
+        capturasAbortRef.current = null;
+        setSwitchingClienteName("");
+        if (!opts.silent) setLoading(false);
+      }
+    }
+  }
+
+  function handleSearchCentroChange(value) {
+    const nextSearch = value.trim();
+    setSearchCentro(value);
+    setDebouncedSearchCentro(nextSearch);
+    setPage(1);
+    loadCapturas({ silent: false, page: 1, search: nextSearch });
+  }
+
+  async function handleLocateMissingCentro(centro) {
+    const centroId = centro?.centro_id ?? centro?.id ?? null;
+    const centroName = centro?.nombre || "";
+    if (centroId) {
+      setHighlightedCentroId(centroId);
+      const row = document.querySelector(`[data-centro-id="${centroId}"]`);
+      if (row) {
+        row.scrollIntoView({ behavior: "smooth", block: "center" });
+        window.setTimeout(() => setHighlightedCentroId(null), 2200);
+        return;
+      }
+    }
+
+    if (centroName) {
+      setView("table");
+      setSearchCentro(centroName);
+      setDebouncedSearchCentro(centroName);
+      setPage(1);
+      await loadCapturas({ silent: false, page: 1, search: centroName });
+      window.setTimeout(() => {
+        const row = centroId ? document.querySelector(`[data-centro-id="${centroId}"]`) : null;
+        row?.scrollIntoView({ behavior: "smooth", block: "center" });
+        window.setTimeout(() => setHighlightedCentroId(null), 2200);
+      }, 120);
     }
   }
 
   // primer fetch de capturas
   useEffect(() => {
     loadCapturas({ silent: false });
-  }, [cliente?.id, fecha, page, pageSize, base]);
+  }, [cliente?.id, fecha, debouncedSearchCentro, page, pageSize, base]);
 
   // polling de capturas (silencioso) sin forzar recarga de imágenes
   useEffect(() => {
@@ -460,7 +516,7 @@ function DashboardShell({
       if (ivRowsRef.current) clearInterval(ivRowsRef.current);
       document.removeEventListener("visibilitychange", onVis);
     };
-  }, [cliente?.id, fecha, page, pageSize, base]);
+  }, [cliente?.id, fecha, debouncedSearchCentro, page, pageSize, base]);
 
   // mezcla de status con capturas
   const mergedRows = useMemo(() => {
@@ -509,6 +565,31 @@ function DashboardShell({
 
   return (
     <div className="min-h-screen flex bg-slate-50">
+      {loading && switchingClienteName && (
+        <div
+          className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/25 px-4 backdrop-blur-[2px]"
+          role="status"
+          aria-live="polite"
+        >
+          <div className="w-full max-w-sm rounded-lg bg-white px-5 py-4 shadow-2xl ring-1 ring-slate-900/10">
+            <div className="flex items-center gap-4">
+              <div className="h-10 w-10 rounded-full border-4 border-sky-100 border-t-sky-600 animate-spin" />
+              <div className="min-w-0">
+                <div className="text-sm font-semibold text-slate-900">
+                  Cargando cliente
+                </div>
+                <div className="truncate text-base font-medium text-slate-700">
+                  {switchingClienteName}
+                </div>
+                <div className="mt-1 text-xs text-slate-500">
+                  Actualizando centros y estados.
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Sidebar */}
       <div className="relative">
         {/* Overlay movil */}
@@ -538,8 +619,10 @@ function DashboardShell({
             onSelectCliente={(c) => {
               goToSection("centros");
               // Preparar transición rápida
+              setSwitchingClienteName(formatDisplayName(c?.nombre) || c?.nombre || `Cliente ${c?.id}`);
               setLoading(true);
-              const cached = prefetchCacheRef.current[c?.id];
+              const search = debouncedSearchCentro.trim();
+              const cached = prefetchCacheRef.current[`${c?.id}|${fecha}|${pageSize}|${search}`];
               if (cached) {
                 setRows(cached.rows);
                 setStatusMap(cached.statusMap);
@@ -558,7 +641,7 @@ function DashboardShell({
               try { if (capturasAbortRef.current) capturasAbortRef.current.abort(); } catch {}
 
               // Re-disparar cargas inmediatamente para el nuevo cliente
-              loadCapturas({ silent: false, clienteId: c?.id, page: 1, pageSize });
+              loadCapturas({ silent: false, clienteId: c?.id, page: 1, pageSize, search });
             }}
             onManageUsers={() => isAdmin && goToSection("users")}
             currentUser={currentUser}
@@ -609,11 +692,6 @@ function DashboardShell({
                   <span className="font-semibold normal-case tracking-normal">
                     {displayClienteName}
                   </span>
-                </span>
-              )}
-              {isCentrosSection && (
-                <span className="text-xs px-3 py-1 rounded-full bg-white/10 ring-1 ring-white/20">
-                  Total Centros: <span className="font-semibold">{totalCentros}</span>
                 </span>
               )}
             </div>
@@ -812,16 +890,40 @@ function DashboardShell({
                     />
                   </div>
 
+                  <div className="min-w-[240px] flex-1 sm:flex-none">
+                    <label className="block text-sm text-slate-600">Buscar centro</label>
+                    <div className="relative">
+                      <input
+                        type="search"
+                        className="w-full border rounded px-3 py-2 pr-9 text-sm"
+                        value={searchCentro}
+                        onChange={(e) => handleSearchCentroChange(e.target.value)}
+                        placeholder="Nombre o uuid del centro"
+                      />
+                      {searchCentro && (
+                        <button
+                          type="button"
+                          onClick={() => handleSearchCentroChange("")}
+                          className="absolute inset-y-0 right-1 my-1 inline-flex w-7 items-center justify-center rounded text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+                          title="Limpiar busqueda"
+                          aria-label="Limpiar busqueda"
+                        >
+                          x
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
                   <button
                     onClick={() => loadCapturas({ silent: false })}
-                    className="px-3 py-2 rounded-lg bg-slate-800 text-white hover:bg-slate-900"
+                    className="px-3 py-2 rounded-lg bg-gradient-to-r from-blue-950 via-blue-900 to-indigo-800 text-white shadow ring-1 ring-white/10 hover:from-blue-900 hover:via-blue-800 hover:to-indigo-700 focus:outline-none focus:ring-2 focus:ring-blue-300"
                   >
                     Buscar
                   </button>
 
                   <button
                     onClick={descargarPdf}
-                    className="group inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-white text-slate-800 ring-1 ring-slate-200 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-rose-300"
+                    className="group inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-rose-600 text-white ring-1 ring-rose-700 shadow-sm hover:bg-rose-700 focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-rose-400"
                     title="Descargar informe PDF (hoy)"
                     aria-label="Descargar PDF"
                   >
@@ -878,7 +980,7 @@ function DashboardShell({
                         </g>
                       </g>
                     </svg>
-                    <span className="hidden sm:inline"></span>
+                    <span className="text-sm font-semibold">PDF</span>
                   </button>
 
                   {/* Campo de backend ocultado: ya no se muestra en UI */}
@@ -905,23 +1007,9 @@ function DashboardShell({
                   Selecciona un cliente en el menu izquierdo.
                 </div>
               )}
-              {cliente?.id && loading && view !== "status" && (
-                <div className="bg-white rounded-2xl shadow-lg ring-1 ring-black/5 overflow-hidden">
-                  <div className="px-3 md:px-4 py-3 border-b bg-slate-50/60 flex items-center justify-between">
-                    <div className="text-sm text-slate-600">Cargando capturas...</div>
-                    <div className="animate-pulse h-3 w-24 bg-slate-200 rounded" />
-                  </div>
-                  <div className="divide-y divide-slate-200">
-                    {Array.from({ length: 8 }).map((_, i) => (
-                      <div key={i} className="grid grid-cols-6 gap-4 px-3 md:px-4 py-4 animate-pulse">
-                        <div className="col-span-2 h-4 bg-slate-200 rounded" />
-                        <div className="col-span-1 h-4 bg-slate-200 rounded" />
-                        <div className="col-span-1 h-4 bg-slate-200 rounded" />
-                        <div className="col-span-1 h-20 bg-slate-200 rounded" />
-                        <div className="col-span-1 h-6 bg-slate-200 rounded" />
-                      </div>
-                    ))}
-                  </div>
+              {cliente?.id && loading && !switchingClienteName && rows.length === 0 && view !== "status" && (
+                <div className="text-slate-500 text-sm">
+                  Cargando capturas...
                 </div>
               )}
               {cliente?.id && !loading && rows.length === 0 && view !== "status" && (
@@ -942,6 +1030,7 @@ function DashboardShell({
                       q.set("cliente_id", String(cliente.id));
                       q.set("centro_id", String(row.centro_id));
                       if (fecha) q.set("fecha", fecha);
+                      if (debouncedSearchCentro) q.set("search", debouncedSearchCentro);
                       q.set("page", "1");
                       q.set("page_size", "1");
                       const r = await fetch(`${base}/api/capturas?${q.toString()}`, { cache: "no-store" });
@@ -958,6 +1047,9 @@ function DashboardShell({
                   totalPages={totalPages}
                   totalSinImagen={totalSinImagen}
                   missingNamesTotal={missingNamesTotal}
+                  missingCentersTotal={missingCentersTotal}
+                  highlightedCentroId={highlightedCentroId}
+                  onLocateCentro={handleLocateMissingCentro}
                   onPageChange={(p) => setPage(p)}
                   onPageSizeChange={(ps) => {
                     setPageSize(ps);

@@ -8,6 +8,7 @@ class OrdenCaptura(Base):
     __tablename__ = "ordenes_captura"
     __table_args__ = (
         Index("ix_ordenes_captura_captura_id", "captura_id"),
+        Index("ix_ordenes_uuid_estado_created", "uuid_equipo", "estado", "created_at"),
     )
     id: Mapped[int] = mapped_column(primary_key=True)
     captura_id: Mapped[int] = mapped_column(ForeignKey("capturas.id", ondelete="CASCADE"))
