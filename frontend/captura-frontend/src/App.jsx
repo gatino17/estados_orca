@@ -39,6 +39,22 @@ const ROLE_LABELS = { admin: "Administrador", cliente: "Cliente", soporte: "Sopo
 const normalize = (s) => (s || "").replace(/\/$/, "");
 const DEFAULT_BASE = normalize(import.meta.env.VITE_API_BASE ?? "");
 
+const isHttpsPage = () => typeof window !== "undefined" && window.location.protocol === "https:";
+const isInsecureAbsoluteUrl = (value) => /^http:\/\//i.test(value || "");
+
+function getInitialBase() {
+  try {
+    const stored = normalize(localStorage.getItem("base") || "");
+    if (stored && isHttpsPage() && isInsecureAbsoluteUrl(stored)) {
+      localStorage.removeItem("base");
+      return DEFAULT_BASE;
+    }
+    return stored || DEFAULT_BASE;
+  } catch {
+    return DEFAULT_BASE;
+  }
+}
+
 function formatDisplayName(value) {
   if (!value) return "";
   return String(value)
@@ -54,19 +70,16 @@ function formatDisplayName(value) {
 /* --------------------------------- App ---------------------------------- */
 
 export default function App() {
-  const [base, setBase] = useState(() => {
-    try {
-      const stored = localStorage.getItem("base");
-      return stored != null ? normalize(stored) : DEFAULT_BASE;
-    } catch {
-      return DEFAULT_BASE;
-    }
-  });
+  const [base, setBase] = useState(getInitialBase);
   useEffect(() => {
-    localStorage.setItem("base", base);
+    try {
+      if (base) localStorage.setItem("base", base);
+      else localStorage.removeItem("base");
+    } catch {}
   }, [base]);
   const handleBaseChange = useCallback((value) => {
-    setBase(normalize(value));
+    const next = normalize(value);
+    setBase(isHttpsPage() && isInsecureAbsoluteUrl(next) ? DEFAULT_BASE : next);
   }, []);
 
   const [users, setUsers] = useState([]);
