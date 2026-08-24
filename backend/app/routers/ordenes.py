@@ -1,7 +1,7 @@
 # app/routers/ordenes.py
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, func
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 import asyncio
@@ -18,6 +18,7 @@ router = APIRouter(prefix="/api/ordenes", tags=["ordenes"])
 
 PENDING_CAPTURE = "pendiente"
 PENDING_REBOOT_PC = "pend_reinicio_pc"
+DONE_REBOOT_PC = "tomada_reinicio_pc"
 PENDING_STATES = (PENDING_CAPTURE, PENDING_REBOOT_PC)
 
 async def _find_pending_order_by_uuid(
@@ -153,9 +154,91 @@ async def ack_orden(orden_id: int, db: AsyncSession = Depends(get_db)):
     orden = (await db.execute(select(OrdenCaptura).where(OrdenCaptura.id == orden_id))).scalar_one_or_none()
     if not orden:
         raise HTTPException(status_code=404, detail="orden no encontrada")
-    orden.estado = "tomada"
+    orden.estado = DONE_REBOOT_PC if orden.estado == PENDING_REBOOT_PC else "tomada"
     await db.commit()
     return {"ok": True}
+
+
+@router.post("/{orden_id}/reinicio-confirmado")
+async def confirmar_reinicio_pc(orden_id: int, db: AsyncSession = Depends(get_db)):
+    orden = (await db.execute(select(OrdenCaptura).where(OrdenCaptura.id == orden_id))).scalar_one_or_none()
+    if not orden:
+        raise HTTPException(status_code=404, detail="orden no encontrada")
+    if orden.estado in (PENDING_REBOOT_PC, "tomada", DONE_REBOOT_PC):
+        orden.estado = DONE_REBOOT_PC
+        await db.commit()
+    return {"ok": True, "orden_id": orden.id, "estado": orden.estado}
+
+
+@router.get("/reinicios/resumen")
+async def resumen_reinicios(
+    cliente_id: int = Query(..., description="Cliente a evaluar"),
+    db: AsyncSession = Depends(get_db),
+):
+    now_local = datetime.now(CHILE_TZ)
+    week_start_local = (now_local - timedelta(days=now_local.weekday())).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    week_end_local = week_start_local + timedelta(days=7)
+    week_start_utc = week_start_local.astimezone(timezone.utc).replace(tzinfo=None)
+    week_end_utc = week_end_local.astimezone(timezone.utc).replace(tzinfo=None)
+
+    centers_q = (
+        select(Centro.id, Centro.nombre)
+        .where(
+            Centro.cliente_id == cliente_id,
+            Centro.es_central.is_not(True),
+        )
+        .order_by(Centro.nombre.asc(), Centro.id.asc())
+    )
+    center_rows = (await db.execute(centers_q)).mappings().all()
+    center_ids = {row["id"] for row in center_rows}
+
+    done_q = (
+        select(func.distinct(Captura.centro_id))
+        .join(OrdenCaptura, OrdenCaptura.captura_id == Captura.id)
+        .where(
+            Captura.cliente_id == cliente_id,
+            OrdenCaptura.estado == DONE_REBOOT_PC,
+            OrdenCaptura.created_at >= week_start_utc,
+            OrdenCaptura.created_at < week_end_utc,
+        )
+    )
+    done_ids = {row[0] for row in (await db.execute(done_q)).all() if row[0] in center_ids}
+
+    pending_order_q = (
+        select(func.distinct(Captura.centro_id))
+        .join(OrdenCaptura, OrdenCaptura.captura_id == Captura.id)
+        .where(
+            Captura.cliente_id == cliente_id,
+            OrdenCaptura.estado == PENDING_REBOOT_PC,
+            OrdenCaptura.created_at >= week_start_utc,
+            OrdenCaptura.created_at < week_end_utc,
+        )
+    )
+    pending_order_ids = {
+        row[0] for row in (await db.execute(pending_order_q)).all() if row[0] in center_ids
+    }
+
+    pending_centers = [
+        {
+            "centro_id": row["id"],
+            "nombre": row["nombre"] or f"Centro {row['id']}",
+            "orden_pendiente": row["id"] in pending_order_ids,
+        }
+        for row in center_rows
+        if row["id"] not in done_ids
+    ]
+
+    return {
+        "week_start": week_start_local.date().isoformat(),
+        "week_end": (week_end_local - timedelta(days=1)).date().isoformat(),
+        "total_a_reiniciar": len(center_rows),
+        "reiniciados": len(done_ids),
+        "pendientes": len(pending_centers),
+        "ordenes_pendientes": len(pending_order_ids),
+        "pendientes_centros": pending_centers,
+    }
 
 
 @router.post("/centro/{centro_id}/reiniciar-pc")

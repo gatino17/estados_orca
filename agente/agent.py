@@ -555,9 +555,12 @@ def main():
             orden = pull_orden()
             if orden:
                 log("Orden recibida:", json.dumps(orden))
+                acked = False
                 try:
                     tipo = orden.get("tipo", "captura")
                     if tipo == "reinicio_pc":
+                        ack_orden(int(orden["orden_id"]))
+                        acked = True
                         ejecutar_reinicio_pc()
                     else:
                         # Comportamiento actual: retoma captura
@@ -567,7 +570,8 @@ def main():
                             fecha_rep = date.today()
                         ejecutar_captura(origen="retoma", fecha=fecha_rep)
                 finally:
-                    ack_orden(int(orden["orden_id"]))
+                    if not acked:
+                        ack_orden(int(orden["orden_id"]))
             else:
                 # 3) Empuje periódico del estado NETIO
                 t = time.time()

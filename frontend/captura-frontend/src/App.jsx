@@ -82,6 +82,16 @@ function formatDisplayName(value) {
     .join(" ");
 }
 
+function formatSimpleDate(value) {
+  if (!value) return "--";
+  const parts = String(value).split("-");
+  if (parts.length === 3) {
+    const [year, month, day] = parts;
+    return `${day}-${month}-${year}`;
+  }
+  return value;
+}
+
 /* --------------------------------- App ---------------------------------- */
 
 export default function App() {
@@ -288,6 +298,8 @@ function DashboardShell({
   const [totalSinImagen, setTotalSinImagen] = useState(0);
   const [missingNamesTotal, setMissingNamesTotal] = useState([]);
   const [missingCentersTotal, setMissingCentersTotal] = useState([]);
+  const [rebootSummary, setRebootSummary] = useState(null);
+  const [rebootSummaryLoading, setRebootSummaryLoading] = useState(false);
   const [highlightedCentroId, setHighlightedCentroId] = useState(null);
   const [loading, setLoading] = useState(false);
   const [switchingClienteName, setSwitchingClienteName] = useState("");
@@ -504,6 +516,43 @@ function DashboardShell({
     }
   }
 
+  const loadRebootSummary = useCallback(
+    async (opts = {}) => {
+      const cid = opts?.clienteId ?? cliente?.id;
+      if (!cid) {
+        setRebootSummary(null);
+        return null;
+      }
+      if (!opts.silent) setRebootSummaryLoading(true);
+      try {
+        const q = new URLSearchParams();
+        q.set("cliente_id", String(cid));
+        const response = await fetch(`${base}/api/ordenes/reinicios/resumen?${q.toString()}`, {
+          cache: "no-store",
+        });
+        if (!response.ok) throw new Error(await response.text());
+        const data = await response.json();
+        setRebootSummary(data);
+        return data;
+      } catch (e) {
+        console.error("reinicios resumen:", e);
+        setRebootSummary(null);
+        return null;
+      } finally {
+        if (!opts.silent) setRebootSummaryLoading(false);
+      }
+    },
+    [base, cliente?.id]
+  );
+
+  useEffect(() => {
+    if (cliente?.id && view === "cards") {
+      loadRebootSummary({ silent: false });
+    } else if (!cliente?.id) {
+      setRebootSummary(null);
+    }
+  }, [cliente?.id, view, loadRebootSummary]);
+
   function handleSearchCentroChange(value) {
     const nextSearch = value.trim();
     setSearchCentro(value);
@@ -576,6 +625,16 @@ function DashboardShell({
 
   const totalCentros = totalCentrosCuenta ?? mergedRows?.length ?? 0;
   const hasCentrosTableContent = rows.length > 0 || totalCentros > 0 || totalCentrales > 0;
+  const cardsPage = Math.max(1, page || 1);
+  const cardsPageSize = Math.max(1, pageSize || 1);
+  const cardsTotal = Math.max(0, totalRows || mergedRows?.length || 0);
+  const cardsTotalPages = Math.max(1, totalPages || 1);
+  const cardsStartIdx = cardsTotal ? (cardsPage - 1) * cardsPageSize + 1 : 0;
+  const cardsEndIdx = cardsTotal ? Math.min(cardsStartIdx + cardsPageSize - 1, cardsTotal) : 0;
+  const rebootPendingCenters = Array.isArray(rebootSummary?.pendientes_centros)
+    ? rebootSummary.pendientes_centros
+    : [];
+  const rebootPendingPreview = rebootPendingCenters.slice(0, 10);
 
   // PDF
   async function descargarPdf() {
@@ -1132,9 +1191,134 @@ function DashboardShell({
               )}
 
               {rows.length > 0 && view === "cards" && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-                  {mergedRows.map((row) => (
-                    <CentroCard key={row.id} base={base} row={row} selectedFecha={fecha} />
+                <div className="flex flex-col gap-3">
+                  <div className="rounded-lg bg-gradient-to-r from-rose-500 via-red-500 to-orange-400 p-[1px] shadow-sm">
+                    <div className="rounded-[7px] bg-white px-4 py-4">
+                      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                        <div>
+                          <div className="text-xs font-bold uppercase tracking-wide text-rose-800">
+                            Pendientes de reinicio semanal
+                          </div>
+                          <div className="mt-1 text-[11px] text-slate-500">
+                            Semana {formatSimpleDate(rebootSummary?.week_start)} al {formatSimpleDate(rebootSummary?.week_end)}
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-3 gap-3 text-center">
+                          <div className="rounded-md bg-slate-50 px-3 py-2 ring-1 ring-slate-200">
+                            <div className="text-2xl font-bold leading-none text-slate-900">
+                              {rebootSummaryLoading ? "--" : rebootSummary?.total_a_reiniciar ?? 0}
+                            </div>
+                            <div className="mt-1 text-[11px] text-slate-500">total</div>
+                          </div>
+                          <div className="rounded-md bg-emerald-50 px-3 py-2 ring-1 ring-emerald-200">
+                            <div className="text-2xl font-bold leading-none text-emerald-700">
+                              {rebootSummaryLoading ? "--" : rebootSummary?.reiniciados ?? 0}
+                            </div>
+                            <div className="mt-1 text-[11px] text-emerald-700">reiniciados</div>
+                          </div>
+                          <div className="rounded-md bg-rose-50 px-3 py-2 ring-1 ring-rose-200">
+                            <div className="text-2xl font-bold leading-none text-rose-700">
+                              {rebootSummaryLoading ? "--" : rebootSummary?.pendientes ?? 0}
+                            </div>
+                            <div className="mt-1 text-[11px] text-rose-700">pendientes</div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {rebootSummaryLoading && (
+                          <span className="rounded-full bg-slate-100 px-3 py-1 text-[11px] font-semibold text-slate-600">
+                            Cargando resumen...
+                          </span>
+                        )}
+                        {!rebootSummaryLoading && rebootPendingPreview.length === 0 && (
+                          <span className="rounded-full bg-emerald-100 px-3 py-1 text-[11px] font-semibold text-emerald-800">
+                            Semana completa
+                          </span>
+                        )}
+                        {!rebootSummaryLoading &&
+                          rebootPendingPreview.map((item) => (
+                            <span
+                              key={item.centro_id}
+                              className={[
+                                "rounded-full px-3 py-1 text-[11px] font-semibold ring-1",
+                                item.orden_pendiente
+                                  ? "bg-amber-50 text-amber-800 ring-amber-200"
+                                  : "bg-rose-50 text-rose-800 ring-rose-200",
+                              ].join(" ")}
+                            >
+                              {item.nombre}
+                            </span>
+                          ))}
+                        {!rebootSummaryLoading && rebootPendingCenters.length > rebootPendingPreview.length && (
+                          <span className="rounded-full bg-slate-100 px-3 py-1 text-[11px] font-semibold text-slate-600">
+                            +{rebootPendingCenters.length - rebootPendingPreview.length} mas
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col gap-3 rounded-lg border border-slate-200 bg-white px-4 py-3 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+                    <div className="text-sm text-slate-700">
+                      Mostrando <b>{cardsStartIdx}</b> - <b>{cardsEndIdx}</b> de <b>{cardsTotal}</b>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-3">
+                      <label className="text-xs text-slate-600">Filas por pagina</label>
+                      <select
+                        value={pageSize}
+                        onChange={(e) => {
+                          const ps = Number(e.target.value);
+                          setPageSize(ps);
+                          setPage(1);
+                          try { localStorage.setItem("ct.pageSize", String(ps)); } catch {}
+                        }}
+                        className="rounded-md border px-2 py-1 text-sm"
+                      >
+                        {[10, 15, 30, 50].map((n) => (
+                          <option key={n} value={n}>{n}</option>
+                        ))}
+                      </select>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => setPage(1)}
+                          disabled={cardsPage <= 1}
+                          className="rounded border px-2 py-1 text-sm disabled:opacity-50"
+                          title="Primera"
+                        >{"<<"}</button>
+                        <button
+                          onClick={() => setPage(Math.max(1, cardsPage - 1))}
+                          disabled={cardsPage <= 1}
+                          className="rounded border px-2 py-1 text-sm disabled:opacity-50"
+                          title="Anterior"
+                        >{"<"}</button>
+                        <span className="px-2 text-xs text-slate-600">{cardsPage} / {cardsTotalPages}</span>
+                        <button
+                          onClick={() => setPage(Math.min(cardsTotalPages, cardsPage + 1))}
+                          disabled={cardsPage >= cardsTotalPages}
+                          className="rounded border px-2 py-1 text-sm disabled:opacity-50"
+                          title="Siguiente"
+                        >{">"}</button>
+                        <button
+                          onClick={() => setPage(cardsTotalPages)}
+                          disabled={cardsPage >= cardsTotalPages}
+                          className="rounded border px-2 py-1 text-sm disabled:opacity-50"
+                          title="Ultima"
+                        >{">>"}</button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {mergedRows.map((row, index) => (
+                    <CentroCard
+                      key={row.id}
+                      base={base}
+                      row={row}
+                      selectedFecha={fecha}
+                      rowNumber={(cardsPage - 1) * cardsPageSize + index + 1}
+                      onRebootSummaryRefresh={() => loadRebootSummary({ silent: true })}
+                    />
                   ))}
                 </div>
               )}

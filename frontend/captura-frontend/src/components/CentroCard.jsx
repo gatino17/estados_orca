@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import ImageModal from "./ImageModal";
 
-export default function CentroCard({ base, row, selectedFecha }) {
+export default function CentroCard({ base, row, selectedFecha, rowNumber = null, onRebootSummaryRefresh }) {
   const [currentRow, setCurrentRow] = useState(row);
   const [busy, setBusy] = useState(false);
   const [rebootBusy, setRebootBusy] = useState(false);
@@ -33,7 +33,7 @@ export default function CentroCard({ base, row, selectedFecha }) {
     try {
       const r = await fetch(`${base}/api/capturas/${capturaId}/estado`, { cache: "no-store" });
       if (!r.ok) return null;
-      return await r.json(); // { ultima_version_id, tomada_en }
+      return await r.json();
     } catch {
       return null;
     }
@@ -92,6 +92,15 @@ export default function CentroCard({ base, row, selectedFecha }) {
       }
     }
     return null;
+  }
+
+  async function confirmRebootOrder(ordenId) {
+    if (!ordenId) return;
+    try {
+      await fetch(`${base}/api/ordenes/${ordenId}/reinicio-confirmado`, { method: "POST" });
+    } catch {
+      // El resumen se refresca igual; si falla, el backend mantendra el estado actual.
+    }
   }
 
   async function retomar(options = {}) {
@@ -173,6 +182,7 @@ export default function CentroCard({ base, row, selectedFecha }) {
       if (!response.ok) throw new Error(await response.text());
 
       const data = await response.json().catch(() => ({}));
+      onRebootSummaryRefresh?.();
       const commandAtMs = data?.created_at ? Date.parse(data.created_at) : Date.now();
       setStatus("Reinicio enviado. Esperando que el PC vuelva...");
 
@@ -183,83 +193,100 @@ export default function CentroCard({ base, row, selectedFecha }) {
       }
 
       setStatus("PC volvio bien. Actualizando imagen...");
+      await confirmRebootOrder(data?.orden_id);
+      onRebootSummaryRefresh?.();
       await retomar({ keepStatus: true });
     } catch (e) {
       setStatus(`Error reinicio PC: ${e.message}`);
     } finally {
       setRebootBusy(false);
+      onRebootSummaryRefresh?.();
     }
   }
 
   return (
-    <div className="bg-white rounded-xl shadow border">
-      <div className="p-3">
-        <div className="flex items-center justify-between">
-          <h3
-            className="font-semibold text-slate-800 truncate"
-            title={currentRow.nombre || `Centro ${currentRow.centro_id}`}
-          >
-            {currentRow.nombre || `Centro ${currentRow.centro_id}`}
-          </h3>
-          <span className="text-[11px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-700">
-            {currentRow.estado}
-          </span>
+    <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+      <div className="flex flex-col gap-3 p-3 sm:flex-row sm:items-center">
+        <div className="flex h-9 w-12 shrink-0 items-center justify-center rounded-md bg-slate-50 text-xs font-semibold text-slate-600 ring-1 ring-slate-200">
+          {rowNumber ?? "-"}
         </div>
 
-        {/* Miniatura / placeholder */}
-        <div className="mt-3">
+        <div className="shrink-0">
           {hasImage ? (
             // eslint-disable-next-line jsx-a11y/alt-text
             <img
               src={thumb}
               srcSet={thumbSrcSet()}
-              sizes="(min-width:1024px) 320px, (min-width:640px) 320px, 100vw"
+              sizes="(min-width:1024px) 180px, (min-width:640px) 180px, 100vw"
               loading="lazy"
               decoding="async"
               fetchpriority="low"
-              className="w-full h-36 object-cover rounded-lg border cursor-zoom-in"
+              className="h-24 w-full rounded-md border object-cover cursor-zoom-in sm:w-44"
               onClick={() => setOpen(true)}
             />
           ) : (
-            <div className="w-full h-36 rounded-lg bg-gradient-to-br from-rose-500 via-red-400 to-orange-300 p-[2px] shadow-sm">
-              <div className="h-full w-full rounded-[7px] bg-rose-50 grid place-items-center text-sm font-semibold text-rose-700">
+            <div className="h-24 w-full rounded-md bg-gradient-to-br from-rose-500 via-red-400 to-orange-300 p-[2px] shadow-sm sm:w-44">
+              <div className="grid h-full w-full place-items-center rounded-[5px] bg-rose-50 text-xs font-semibold text-rose-700">
                 Sin imagen
               </div>
             </div>
           )}
-          <div className="text-[11px] text-slate-500 mt-1">
-            Fecha reporte: <span className="font-mono">{currentRow.fecha_reporte}</span>
-          </div>
         </div>
 
-        {(currentRow.observacion || currentRow.grabacion) && (
-          <div className="mt-2 text-xs text-slate-600 space-y-1">
-            {currentRow.observacion && (
-              <p>
-                <b>Obs:</b> {currentRow.observacion}
-              </p>
-            )}
-            {currentRow.grabacion && (
-              <p>
-                <b>Grab:</b> {currentRow.grabacion}
-              </p>
-            )}
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <h3
+              className="truncate text-sm font-semibold text-slate-900"
+              title={currentRow.nombre || `Centro ${currentRow.centro_id}`}
+            >
+              {currentRow.nombre || `Centro ${currentRow.centro_id}`}
+            </h3>
+            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-700">
+              {currentRow.estado}
+            </span>
           </div>
-        )}
 
-        {/* Acciones */}
-        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <div className="mt-1 text-[11px] text-slate-500">
+            Fecha reporte: <span className="font-mono text-slate-700">{currentRow.fecha_reporte}</span>
+          </div>
+
+          {(currentRow.observacion || currentRow.grabacion) && (
+            <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-600">
+              {currentRow.observacion && (
+                <span>
+                  <b>Obs:</b> {currentRow.observacion}
+                </span>
+              )}
+              {currentRow.grabacion && (
+                <span>
+                  <b>Grab:</b> {currentRow.grabacion}
+                </span>
+              )}
+            </div>
+          )}
+
+        </div>
+
+        <div className="flex shrink-0 flex-wrap items-center gap-2 sm:justify-end">
+          {status && (
+            <div className="min-w-[220px] text-sm font-bold text-slate-700 sm:text-right">
+              {status}
+            </div>
+          )}
           <button
             onClick={retomar}
             disabled={busy || rebootBusy}
-            className="px-3 py-2 rounded-lg bg-sky-600 text-white hover:bg-sky-700 disabled:opacity-60"
+            className="rounded-md bg-sky-600 px-3 py-2 text-sm font-semibold text-white hover:bg-sky-700 disabled:opacity-60"
           >
-            {busy ? "Capturando…" : "Actualizar imagen"}
+            {busy ? "Capturando..." : "Actualizar imagen"}
           </button>
           <button
+            type="button"
             onClick={reiniciarPc}
             disabled={busy || rebootBusy}
-            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-rose-600 text-white hover:bg-rose-700 disabled:opacity-60"
+            title="Reiniciar PC"
+            aria-label="Reiniciar PC"
+            className="grid h-10 w-10 place-items-center rounded-md bg-rose-600 text-white hover:bg-rose-700 disabled:opacity-60"
           >
             {rebootBusy ? (
               <span className="inline-block h-4 w-4 rounded-full border-2 border-white/70 border-t-transparent animate-spin" />
@@ -267,27 +294,22 @@ export default function CentroCard({ base, row, selectedFecha }) {
               <svg
                 xmlns="http://www.w3.org/2000/svg"
                 viewBox="0 0 24 24"
-                className="h-4 w-4"
+                className="h-5 w-5"
                 fill="none"
                 stroke="currentColor"
-                strokeWidth="2"
+                strokeWidth="2.2"
                 strokeLinecap="round"
                 strokeLinejoin="round"
                 aria-hidden="true"
               >
-                <path d="M21 12a9 9 0 1 1-2.64-6.36" />
-                <path d="M21 3v6h-6" />
+                <path d="M12 2v10" />
+                <path d="M18.4 6.6a9 9 0 1 1-12.8 0" />
               </svg>
             )}
-            {rebootBusy ? "Reiniciando..." : "Reiniciar PC"}
           </button>
-          <div className="min-h-5 min-w-[180px] flex-1 text-[11px] text-slate-500 flex items-center">
-            {status}
-          </div>
         </div>
       </div>
 
-      {/* Modal imagen grande, solo si hay imagen */}
       {hasImage && (
         <ImageModal
           open={open}
