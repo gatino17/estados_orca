@@ -37,7 +37,7 @@ function isMobileViewport() {
 const ROLE_LABELS = { admin: "Administrador", cliente: "Cliente", soporte: "Soporte" };
 // Normaliza URLs (quita slash final)
 const normalize = (s) => (s || "").replace(/\/$/, "");
-const DEFAULT_BASE = normalize(import.meta.env.VITE_API_BASE ?? "http://localhost:8000");
+const DEFAULT_BASE = normalize(import.meta.env.VITE_API_BASE ?? "");
 
 function formatDisplayName(value) {
   if (!value) return "";

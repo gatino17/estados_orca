@@ -110,7 +110,7 @@ export default function LoginPage({
                     type="url"
                     value={base}
                     onChange={(e) => onBaseChange?.(e.target.value)}
-                    placeholder="http://localhost:8000"
+                    placeholder="https://estados.orcatecnologia.net"
                     className="w-full rounded-xl bg-white/10 border border-white/10 px-4 py-3 text-sm text-white placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-sky-400 focus:border-transparent transition"
                   />
                 </label>
