@@ -41,11 +41,24 @@ const RAW_DEFAULT_BASE = normalize(import.meta.env.VITE_API_BASE ?? "");
 
 const isHttpsPage = () => typeof window !== "undefined" && window.location.protocol === "https:";
 const isInsecureAbsoluteUrl = (value) => /^http:\/\//i.test(value || "");
-const safeBase = (value) => (isHttpsPage() && isInsecureAbsoluteUrl(value) ? "" : normalize(value));
+const isLocalAppHost = () => {
+  if (typeof window === "undefined") return false;
+  return ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname);
+};
+const allowCustomBase = () => typeof window === "undefined" || isLocalAppHost();
+const safeBase = (value) => {
+  const next = normalize(value);
+  if (!allowCustomBase()) return "";
+  return isHttpsPage() && isInsecureAbsoluteUrl(next) ? "" : next;
+};
 const DEFAULT_BASE = safeBase(RAW_DEFAULT_BASE);
 
 function getInitialBase() {
   try {
+    if (!allowCustomBase()) {
+      localStorage.removeItem("base");
+      return "";
+    }
     const stored = normalize(localStorage.getItem("base") || "");
     if (stored && isHttpsPage() && isInsecureAbsoluteUrl(stored)) {
       localStorage.removeItem("base");
