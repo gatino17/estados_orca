@@ -2,7 +2,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 import asyncio
 
@@ -16,6 +16,10 @@ CHILE_TZ = ZoneInfo("America/Santiago")
 
 router = APIRouter(prefix="/api/ordenes", tags=["ordenes"])
 
+PENDING_CAPTURE = "pendiente"
+PENDING_REBOOT_PC = "pend_reinicio_pc"
+PENDING_STATES = (PENDING_CAPTURE, PENDING_REBOOT_PC)
+
 async def _find_pending_order_by_uuid(
     db: AsyncSession, uuid_equipo: str
 ) -> tuple[OrdenCaptura, Captura] | None:
@@ -28,7 +32,7 @@ async def _find_pending_order_by_uuid(
         select(OrdenCaptura, Captura)
         .join(Captura, Captura.id == OrdenCaptura.captura_id)
         .where(
-            OrdenCaptura.estado == "pendiente",
+            OrdenCaptura.estado.in_(PENDING_STATES),
             OrdenCaptura.uuid_equipo == uuid_equipo,
         )
         .order_by(OrdenCaptura.created_at.asc())
@@ -45,7 +49,7 @@ async def _find_pending_order_by_uuid(
             select(OrdenCaptura, Captura)
             .join(Captura, Captura.id == OrdenCaptura.captura_id)
             .where(
-                OrdenCaptura.estado == "pendiente",
+                OrdenCaptura.estado.in_(PENDING_STATES),
                 Captura.centro_id == cen.id,
             )
             .order_by(OrdenCaptura.created_at.asc())
@@ -62,7 +66,7 @@ async def _find_pending_order_by_uuid(
             select(OrdenCaptura, Captura)
             .join(Captura, Captura.id == OrdenCaptura.captura_id)
             .where(
-                OrdenCaptura.estado == "pendiente",
+                OrdenCaptura.estado.in_(PENDING_STATES),
                 Captura.dispositivo_id == d.id,
             )
             .order_by(OrdenCaptura.created_at.asc())
@@ -117,9 +121,11 @@ async def pull_orden(
         row = await _find_pending_order_by_uuid(db, uuid_equipo)
         if row:
             orden, cap = row
+            tipo = "reinicio_pc" if orden.estado == PENDING_REBOOT_PC else "captura"
             return {
                 "orden": {
                     "orden_id": orden.id,
+                    "tipo": tipo,
                     "captura_id": cap.id,
                     "cliente_id": cap.cliente_id,
                     "centro_id": cap.centro_id,
@@ -150,5 +156,63 @@ async def ack_orden(orden_id: int, db: AsyncSession = Depends(get_db)):
     orden.estado = "tomada"
     await db.commit()
     return {"ok": True}
+
+
+@router.post("/centro/{centro_id}/reiniciar-pc")
+async def reiniciar_pc_por_centro(
+    centro_id: int,
+    fecha: date | None = Query(None, description="Fecha objetivo YYYY-MM-DD opcional"),
+    db: AsyncSession = Depends(get_db),
+):
+    cen = (await db.execute(select(Centro).where(Centro.id == centro_id))).scalar_one_or_none()
+    if not cen:
+        raise HTTPException(status_code=404, detail="centro no encontrado")
+    if not cen.uuid_equipo:
+        raise HTTPException(status_code=400, detail="centro sin uuid_equipo")
+
+    target = fecha or datetime.now(CHILE_TZ).date()
+
+    cap = (
+        await db.execute(
+            select(Captura).where(
+                Captura.cliente_id == cen.cliente_id,
+                Captura.centro_id == cen.id,
+                Captura.fecha_reporte == target,
+            )
+        )
+    ).scalar_one_or_none()
+
+    if not cap:
+        cap = Captura(
+            cliente_id=cen.cliente_id,
+            centro_id=cen.id,
+            dispositivo_id=None,
+            fecha_reporte=target,
+            estado="pendiente",
+        )
+        db.add(cap)
+        await db.flush()
+
+    orden = OrdenCaptura(
+        captura_id=cap.id,
+        estado=PENDING_REBOOT_PC,
+        uuid_equipo=cen.uuid_equipo,
+    )
+    db.add(orden)
+    await db.commit()
+    await db.refresh(orden)
+    created_at = orden.created_at
+    if created_at and created_at.tzinfo is None:
+        created_at = created_at.replace(tzinfo=timezone.utc)
+
+    return {
+        "ok": True,
+        "orden_id": orden.id,
+        "tipo": "reinicio_pc",
+        "captura_id": cap.id,
+        "centro_id": cen.id,
+        "uuid_equipo": cen.uuid_equipo,
+        "created_at": created_at.astimezone(timezone.utc).isoformat().replace("+00:00", "Z") if created_at else None,
+    }
 
 

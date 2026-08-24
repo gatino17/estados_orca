@@ -103,7 +103,9 @@ export default function CentrosTable({
   }, [centrales, rows]);
   const hasStatus = useMemo(() => Object.values(statusById).some(Boolean), [statusById]);
   const missingCount = totalSinImagen || missingImages.size;
-  const statsCount = 1 + (safeTotalCentrales > 0 ? 1 : 0) + (missingCount > 0 ? 1 : 0);
+  const showCentralCard = safeTotalCentrales > 0;
+  const showMissingCard = !showCentralCard && missingCount > 0;
+  const statsCount = 1 + (showCentralCard || showMissingCard ? 1 : 0);
   const statsGridCols = statsCount >= 3 ? "lg:grid-cols-3" : statsCount === 2 ? "md:grid-cols-2" : "";
   const missingNames = useMemo(() => {
     if (Array.isArray(missingNamesTotal) && missingNamesTotal.length) return missingNamesTotal;
@@ -363,7 +365,7 @@ export default function CentrosTable({
               </div>
             </div>
 
-            {safeTotalCentrales > 0 && (
+            {showCentralCard && (
               <div className="rounded-lg bg-gradient-to-r from-cyan-500 via-teal-500 to-emerald-500 p-[1px] shadow-sm">
                 <div className="rounded-[7px] bg-white px-4 py-3">
                   <div className="flex flex-col gap-3">
@@ -450,7 +452,7 @@ export default function CentrosTable({
               </div>
             )}
 
-            {missingCount > 0 && (
+            {showMissingCard && (
             <div className="rounded-lg bg-gradient-to-r from-rose-500 via-red-400 to-orange-300 p-[1px] shadow-sm">
               <div className="rounded-[7px] bg-rose-50 px-4 py-3">
                 <div className="flex flex-col gap-2">

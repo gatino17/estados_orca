@@ -28,6 +28,10 @@ function Hamburger({ open, onClick, inverted = false }) {
   );
 }
 
+function isMobileViewport() {
+  return typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches;
+}
+
 /* ------------------------------ Constantes ------------------------------ */
 
 const ROLE_LABELS = { admin: "Administrador", cliente: "Cliente", soporte: "Soporte" };
@@ -334,6 +338,9 @@ function DashboardShell({
   // Sidebar abierto/cerrado (persistido)
   const [menuOpen, setMenuOpen] = useState(() => {
     try {
+      if (typeof window !== "undefined" && window.matchMedia("(min-width: 768px)").matches) {
+        return true;
+      }
       return JSON.parse(localStorage.getItem("menuOpen") ?? "true");
     } catch {
       return true;
@@ -359,7 +366,7 @@ function DashboardShell({
       }
       if (target === "users") {
         if (!isAdmin) return;
-        setMenuOpen(false);
+        if (isMobileViewport()) setMenuOpen(false);
       }
     },
     [setSection, setCreateOpen, setMenuOpen, isAdmin]
@@ -654,7 +661,7 @@ function DashboardShell({
               }
               setCliente(c);
               setPage(1);
-              setMenuOpen(false); // cerrar en movil tras elegir
+              if (isMobileViewport()) setMenuOpen(false);
 
               // Cancelar peticiones en curso
               try { if (capturasAbortRef.current) capturasAbortRef.current.abort(); } catch {}
@@ -741,7 +748,7 @@ function DashboardShell({
                           : "text-white/85 hover:text-white"
                       }`}
                     >
-                      Tabla
+                      Centros
                     </button>
                     <button
                       onClick={() => setView("cards")}
@@ -752,7 +759,7 @@ function DashboardShell({
                           : "text-white/85 hover:text-white"
                       }`}
                     >
-                      Tarjetas
+                      Reinicios
                     </button>
                     <button
                       onClick={() => setView("status")}

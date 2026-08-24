@@ -14,16 +14,109 @@ from requests.auth import HTTPBasicAuth, HTTPDigestAuth
 # =======================
 # CONFIG (ENV VARS)
 # =======================
-SERVER = os.getenv("SERVER", "http://204.48.22.217:5175").rstrip("/")
-UUID_EQUIPO = os.getenv("UUID_EQUIPO", "centro-factoria")
+SERVER = os.getenv("SERVER", "http://179.57.170.61:8000").rstrip("/")
+UUID_EQUIPO = os.getenv("UUID_EQUIPO", "san-antonio-rio-pilmaiquen")
+
+# ==== AUTOINSTALADOR (Scheduled Task / Startup) ==============================
+import sys, subprocess, ctypes, shutil
+
+TASK_NAME = "AgenteEstados"  # cámbialo si quieres
+STARTUP_DIR = os.path.join(os.getenv("APPDATA", ""), r"Microsoft\Windows\Start Menu\Programs\Startup")
+
+def is_admin() -> bool:
+    try:
+        return ctypes.windll.shell32.IsUserAnAdmin() != 0
+    except Exception:
+        return False
+
+def exe_path() -> str:
+    # Soporta .py y PyInstaller .exe
+    return sys.executable if getattr(sys, 'frozen', False) else sys.argv[0]
+
+def install_schtasks():
+    exe = exe_path()
+    # Tarea ÚNICA: arranca al iniciar sesión, en la sesión interactiva
+    subprocess.check_call([
+        "schtasks", "/Create",
+        "/TN", TASK_NAME,
+        "/TR", f'"{exe}"',
+        "/SC", "ONLOGON",
+        "/RL", "HIGHEST",
+        "/IT",          # importante: sesión interactiva (evita pantalla negra)
+        "/F"
+    ], shell=False)
+
+def uninstall_schtasks():
+    # Borra la tarea actual y, si existe de antes, la vieja "Startup"
+    subprocess.call(["schtasks", "/Delete", "/TN", TASK_NAME, "/F"], shell=False)
+    subprocess.call(["schtasks", "/Delete", "/TN", TASK_NAME + "Startup", "/F"], shell=False)
+
+
+def startup_fallback():
+    """
+    Si no hay admin, crea un acceso directo en Startup del usuario.
+    Usamos PowerShell para crear el .lnk sin dependencias extra.
+    """
+    os.makedirs(STARTUP_DIR, exist_ok=True)
+    lnk = os.path.join(STARTUP_DIR, f"{TASK_NAME}.lnk")
+    exe = exe_path()
+    ps = r'''
+$WshShell = New-Object -ComObject WScript.Shell
+$Shortcut = $WshShell.CreateShortcut("{lnk}")
+$Shortcut.TargetPath = "{exe}"
+$Shortcut.WorkingDirectory = "{workdir}"
+$Shortcut.WindowStyle = 7  # minimizado/oculto
+$Shortcut.Save()
+'''.replace("{lnk}", lnk.replace("\\","\\\\"))\
+   .replace("{exe}", exe.replace("\\","\\\\"))\
+   .replace("{workdir}", os.path.dirname(exe).replace("\\","\\\\"))
+    subprocess.check_call(["powershell","-NoProfile","-ExecutionPolicy","Bypass","-Command", ps], shell=False)
+    return lnk
+
+def ensure_persistence():
+    if is_admin():
+        install_schtasks()
+        print("[installer] Tarea Programada creada (admin).")
+    else:
+        # Intento elevar para crear la tarea (opcional). Si el usuario cancela, vamos a Startup.
+        try:
+            params = " ".join([f'"{p}"' for p in sys.argv] + ["--elevated-create-task"])
+            ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable, params, None, 1)
+            sys.exit(0)
+        except Exception:
+            lnk = startup_fallback()
+            print(f"[installer] Sin admin: usando Startup => {lnk}")
+
+def handle_elevated_create_task():
+    # Llamado internamente tras elevación
+    try:
+        install_schtasks()
+        print("[installer] Tarea Programada creada tras elevación.")
+    except subprocess.CalledProcessError as e:
+        print("[installer] Error creando tarea:", e)
+    sys.exit(0)
+
+def remove_persistence():
+    if is_admin():
+        uninstall_schtasks()
+        print("[installer] Tareas eliminadas.")
+    # Limpia acceso directo si existe
+    lnk = os.path.join(STARTUP_DIR, f"{TASK_NAME}.lnk")
+    try:
+        if os.path.exists(lnk):
+            os.remove(lnk)
+            print("[installer] Startup .lnk eliminado.")
+    except Exception:
+        pass
+
 
 # IDs: se resuelven dinámicamente al iniciar
 CLIENTE_ID = None
 CENTRO_ID = None
 DISPOSITIVO_ID = None
 
-IMAGE_MODE = os.getenv("IMAGE_MODE", "file").lower()  # "file" | "screen"
-IMAGE_PATH = os.getenv("IMAGE_PATH", r"C:\Users\Alejandro\Pictures\quetros2.jpg")
+IMAGE_MODE = os.getenv("IMAGE_MODE", "screen").lower()  # "file" | "screen"
+IMAGE_PATH = os.getenv("IMAGE_PATH", r"C:\Users\Nvr\Pictures\screenshot.jpg")
 
 DEFAULT_PICTURES = Path(os.environ.get("USERPROFILE", "")) / "Pictures"
 IMAGE_SAVE_DIR = Path(os.getenv("IMAGE_SAVE_DIR", str(DEFAULT_PICTURES)))
@@ -31,7 +124,7 @@ SCREENSHOT_NAME = os.getenv("SCREENSHOT_NAME", "screenshot.jpg")
 SCREENSHOT_PATH = IMAGE_SAVE_DIR / SCREENSHOT_NAME
 
 CENTER_NAME = os.getenv("CENTER_NAME", "Centro Desconocido")
-CAPTURE_AT = os.getenv("CAPTURE_AT", "13:21")  # "HH:MM[,HH:MM...]"
+CAPTURE_AT = os.getenv("CAPTURE_AT", "08:10")  # "HH:MM[,HH:MM...]"
 
 TIMEZONE_LABEL = os.getenv("TZ", "America/Santiago")
 PULL_WAIT_SECONDS = int(os.getenv("PULL_WAIT_SECONDS", "20"))
@@ -42,13 +135,19 @@ MONITOR_INDEX = int(os.getenv("MONITOR_INDEX", "0"))
 DEBUG_SAVE = os.getenv("DEBUG_SAVE", "0") == "1"
 
 # ===== NETIO CONFIG =====
-NETIO_HOST = os.getenv("NETIO_HOST", "10.11.10.171")   # IP/DNS
+NETIO_HOST = os.getenv("NETIO_HOST", "10.11.10.249")   # IP/DNS
 NETIO_PORT = os.getenv("NETIO_PORT", "")               # ej "8090" (vacío = 80)
 NETIO_PATH = os.getenv("NETIO_PATH", "/netio.json")    # ruta JSON API
 NETIO_USER = os.getenv("NETIO_USER", "netio")          # usuario JSON API (no el del login web)
 NETIO_PASS = os.getenv("NETIO_PASS", "753524")
 NETIO_TIMEOUT = float(os.getenv("NETIO_TIMEOUT", "3.0"))
 NETIO_PUSH_EVERY = int(os.getenv("NETIO_PUSH_EVERY", "10"))  # cada Xs reporta estado al backend
+
+# ===== REINICIO PC CONFIG =====
+PC_REBOOT_ENABLED = os.getenv("PC_REBOOT_ENABLED", "1") == "1"
+PC_REBOOT_MODE = os.getenv("PC_REBOOT_MODE", "local").lower()  # local | remote
+PC_REBOOT_HOST = os.getenv("PC_REBOOT_HOST", "10.11.10.250")
+PC_REBOOT_DELAY_SECONDS = int(os.getenv("PC_REBOOT_DELAY_SECONDS", "5"))
 
 # =======================
 # RESOLVE IDs
@@ -386,6 +485,23 @@ def ejecutar_captura(origen: str, fecha: Optional[date] = None):
             log("DEBUG_SAVE error:", repr(e))
     return subir_imagen(img_bytes, fecha_reporte=fecha, origen=origen)
 
+def ejecutar_reinicio_pc():
+    if not PC_REBOOT_ENABLED:
+        raise RuntimeError("Reinicio PC deshabilitado por PC_REBOOT_ENABLED=0")
+
+    delay = max(0, PC_REBOOT_DELAY_SECONDS)
+    if os.name == "nt":
+        if PC_REBOOT_MODE == "remote":
+            cmd = ["shutdown", "/m", f"\\\\{PC_REBOOT_HOST}", "/r", "/t", str(delay), "/f"]
+        else:
+            cmd = ["shutdown", "/r", "/t", str(delay), "/f"]
+    else:
+        cmd = ["shutdown", "-r", "now"]
+
+    log("Ejecutando reinicio PC:", " ".join(cmd))
+    subprocess.Popen(cmd, shell=False)
+    return {"ok": True, "mode": PC_REBOOT_MODE, "host": PC_REBOOT_HOST if PC_REBOOT_MODE == "remote" else None}
+
 def proxima_automatico_str(dt: datetime) -> str:
     return dt.strftime("%Y-%m-%d %H:%M:%S")
 
@@ -411,6 +527,7 @@ def main():
         f"save_dir={IMAGE_SAVE_DIR} screenshot={SCREENSHOT_NAME}",
         f"center='{CENTER_NAME}' horarios={CAPTURE_AT}",
         f"NETIO host={NETIO_HOST}{(':'+NETIO_PORT) if NETIO_PORT else ''} user={NETIO_USER} push_every={NETIO_PUSH_EVERY}s",
+        f"PC_REBOOT mode={PC_REBOOT_MODE} host={PC_REBOOT_HOST} delay={PC_REBOOT_DELAY_SECONDS}s enabled={PC_REBOOT_ENABLED}",
     )
 
     now = datetime.now()
@@ -439,12 +556,16 @@ def main():
             if orden:
                 log("Orden recibida:", json.dumps(orden))
                 try:
-                    # Comportamiento actual: retoma captura
-                    try:
-                        fecha_rep = date.fromisoformat(orden.get("fecha_reporte", date.today().isoformat()))
-                    except Exception:
-                        fecha_rep = date.today()
-                    ejecutar_captura(origen="retoma", fecha=fecha_rep)
+                    tipo = orden.get("tipo", "captura")
+                    if tipo == "reinicio_pc":
+                        ejecutar_reinicio_pc()
+                    else:
+                        # Comportamiento actual: retoma captura
+                        try:
+                            fecha_rep = date.fromisoformat(orden.get("fecha_reporte", date.today().isoformat()))
+                        except Exception:
+                            fecha_rep = date.today()
+                        ejecutar_captura(origen="retoma", fecha=fecha_rep)
                 finally:
                     ack_orden(int(orden["orden_id"]))
             else:
@@ -475,6 +596,24 @@ def main():
         except Exception as e:
             log("Loop ERROR:", repr(e))
             time.sleep(3.0)
+def run():
+    """Entry point para servicio/EXE."""
+    main()
+import argparse
+parser = argparse.ArgumentParser()
+parser.add_argument("--install", action="store_true", help="Instala auto-inicio")
+parser.add_argument("--uninstall", action="store_true", help="Quita auto-inicio")
+parser.add_argument("--elevated-create-task", action="store_true", help=argparse.SUPPRESS)
+args, _ = parser.parse_known_args()
+
+if args.elevated_create_task:
+    handle_elevated_create_task()
+if args.install:
+    ensure_persistence()
+    sys.exit(0)
+if args.uninstall:
+    remove_persistence()
+    sys.exit(0)
 
 if __name__ == "__main__":
-    main()
+    run()

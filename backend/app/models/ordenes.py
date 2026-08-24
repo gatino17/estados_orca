@@ -12,7 +12,7 @@ class OrdenCaptura(Base):
     )
     id: Mapped[int] = mapped_column(primary_key=True)
     captura_id: Mapped[int] = mapped_column(ForeignKey("capturas.id", ondelete="CASCADE"))
-    estado: Mapped[str] = mapped_column(String(20), default="pendiente") # pendiente|tomada|cancelada
+    estado: Mapped[str] = mapped_column(String(20), default="pendiente") # pendiente|pend_reinicio_pc|tomada|cancelada
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP, default=datetime.utcnow)
 
     uuid_equipo: Mapped[str | None] = mapped_column(String(80), index=True)
