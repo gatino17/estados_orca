@@ -14,7 +14,7 @@ from requests.auth import HTTPBasicAuth, HTTPDigestAuth
 # =======================
 # CONFIG (ENV VARS)
 # =======================
-SERVER = os.getenv("SERVER", "http://179.57.170.61:8000").rstrip("/")
+SERVER = os.getenv("SERVER", "https://estados.orcatecnologia.net").rstrip("/")
 UUID_EQUIPO = os.getenv("UUID_EQUIPO", "san-antonio-rio-pilmaiquen")
 
 # ==== AUTOINSTALADOR (Scheduled Task / Startup) ==============================
