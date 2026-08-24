@@ -37,10 +37,12 @@ function isMobileViewport() {
 const ROLE_LABELS = { admin: "Administrador", cliente: "Cliente", soporte: "Soporte" };
 // Normaliza URLs (quita slash final)
 const normalize = (s) => (s || "").replace(/\/$/, "");
-const DEFAULT_BASE = normalize(import.meta.env.VITE_API_BASE ?? "");
+const RAW_DEFAULT_BASE = normalize(import.meta.env.VITE_API_BASE ?? "");
 
 const isHttpsPage = () => typeof window !== "undefined" && window.location.protocol === "https:";
 const isInsecureAbsoluteUrl = (value) => /^http:\/\//i.test(value || "");
+const safeBase = (value) => (isHttpsPage() && isInsecureAbsoluteUrl(value) ? "" : normalize(value));
+const DEFAULT_BASE = safeBase(RAW_DEFAULT_BASE);
 
 function getInitialBase() {
   try {
@@ -49,7 +51,7 @@ function getInitialBase() {
       localStorage.removeItem("base");
       return DEFAULT_BASE;
     }
-    return stored || DEFAULT_BASE;
+    return safeBase(stored || DEFAULT_BASE);
   } catch {
     return DEFAULT_BASE;
   }
@@ -78,8 +80,7 @@ export default function App() {
     } catch {}
   }, [base]);
   const handleBaseChange = useCallback((value) => {
-    const next = normalize(value);
-    setBase(isHttpsPage() && isInsecureAbsoluteUrl(next) ? DEFAULT_BASE : next);
+    setBase(safeBase(value));
   }, []);
 
   const [users, setUsers] = useState([]);
