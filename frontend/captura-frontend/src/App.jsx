@@ -575,6 +575,7 @@ function DashboardShell({
   }, [rows, statusMap]);
 
   const totalCentros = totalCentrosCuenta ?? mergedRows?.length ?? 0;
+  const hasCentrosTableContent = rows.length > 0 || totalCentros > 0 || totalCentrales > 0;
 
   // PDF
   async function descargarPdf() {
@@ -1065,13 +1066,13 @@ function DashboardShell({
                   Cargando capturas...
                 </div>
               )}
-              {cliente?.id && !loading && rows.length === 0 && view !== "status" && (
+              {cliente?.id && !loading && !hasCentrosTableContent && view !== "status" && (
                 <div className="text-slate-500 text-sm">
                   Sin capturas para la fecha seleccionada.
                 </div>
               )}
 
-              {rows.length > 0 && view === "table" && (
+              {hasCentrosTableContent && view === "table" && (
                 <CentrosTable
                   base={base}
                   rows={mergedRows}
@@ -1088,9 +1089,16 @@ function DashboardShell({
                       q.set("page_size", "1");
                       const r = await fetch(`${base}/api/capturas?${q.toString()}`, { cache: "no-store" });
                       const list = await r.json();
-                      const updated = Array.isArray(list?.items) && list.items.length ? list.items[0] : null;
+                      const updated =
+                        Array.isArray(list?.items) && list.items.length
+                          ? list.items[0]
+                          : Array.isArray(list?.centrales) && list.centrales.length
+                          ? list.centrales[0]
+                          : null;
                       if (!updated) return;
-                      setRows((prev) => (prev || []).map((it) => (it.centro_id === updated.centro_id ? updated : it)));
+                      if (!updated.es_central) {
+                        setRows((prev) => (prev || []).map((it) => (it.centro_id === updated.centro_id ? updated : it)));
+                      }
                       if (updated.es_central) {
                         setCentrales((prev) => {
                           const exists = (prev || []).some((it) => it.centro_id === updated.centro_id);

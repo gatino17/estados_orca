@@ -96,7 +96,7 @@ export default function CentrosTable({
   const safeTotalPages = Math.max(1, totalPages || 1);
   const startIdx = safeTotal ? (safePage - 1) * safePageSize + 1 : 0;
   const endIdx = safeTotal ? Math.min(startIdx + safePageSize - 1, safeTotal) : 0;
-  const viewRows = useMemo(() => rows || [], [rows]);
+  const viewRows = useMemo(() => (rows || []).filter((r) => !r?.es_central), [rows]);
   const centralRows = useMemo(() => {
     if (Array.isArray(centrales) && centrales.length) return centrales;
     return (rows || []).filter((r) => r?.es_central);
@@ -111,7 +111,7 @@ export default function CentrosTable({
     if (Array.isArray(missingNamesTotal) && missingNamesTotal.length) return missingNamesTotal;
     if (!rows?.length) return [];
     return rows
-      .filter((r) => !r?.ultima_imagen_url)
+      .filter((r) => !r?.es_central && !r?.ultima_imagen_url)
       .map((r) => r.nombre || `Centro ${r.centro_id || r.id}`);
   }, [rows, missingNamesTotal]);
   const missingCenters = useMemo(() => {
@@ -120,7 +120,7 @@ export default function CentrosTable({
       return missingNames.map((name) => ({ nombre: name }));
     }
     return rows
-      .filter((r) => !r?.ultima_imagen_url)
+      .filter((r) => !r?.es_central && !r?.ultima_imagen_url)
       .map((r) => ({
         centro_id: r.centro_id,
         nombre: r.nombre || `Centro ${r.centro_id || r.id}`,
@@ -131,7 +131,7 @@ export default function CentrosTable({
     const next = new Set();
     (rows || []).forEach((r) => {
       const k = r.id ?? r.centro_id;
-      if (!r?.ultima_imagen_url && k !== undefined) next.add(k);
+      if (!r?.es_central && !r?.ultima_imagen_url && k !== undefined) next.add(k);
     });
     setMissingImages(next);
   }, [rows]);

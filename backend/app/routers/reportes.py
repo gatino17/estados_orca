@@ -98,7 +98,7 @@ async def reporte_pdf(
 
     rows_db = (await db.execute(q)).mappings().all()
 
-    rows, con_imagen = [], 0
+    rows = []
     for r in rows_db:
         obs = r["cap_observacion"] if r["cap_observacion"] not in (None, "") else r["centro_observacion"] or ""
         grab = r["cap_grabacion"] if r["cap_grabacion"] not in (None, "") else r["centro_grabacion"] or ""
@@ -107,8 +107,6 @@ async def reporte_pdf(
         else:
             estado = "sin_reporte"
         img_bytes = r["ver_bytes"]
-        if img_bytes:
-            con_imagen += 1
 
         rows.append({
             "nombre": r["centro_nombre"] or f"Centro {r['centro_id']}",
@@ -125,9 +123,11 @@ async def reporte_pdf(
     if not rows:
         raise HTTPException(status_code=404, detail="No hay centros para este cliente")
 
+    normal_rows = [row for row in rows if not row.get("es_central")]
     total_centrales = sum(1 for row in rows if row.get("es_central"))
-    total_centros = len(rows) - total_centrales
-    sin_imagen = len(rows) - con_imagen
+    total_centros = len(normal_rows)
+    con_imagen = sum(1 for row in normal_rows if row.get("imagen_bytes"))
+    sin_imagen = total_centros - con_imagen
 
     # === PDF ===
     buf = io.BytesIO()
@@ -259,7 +259,7 @@ async def reporte_pdf(
     c.setFont("Helvetica", 9)
     zebra = [colors.white, CELESTE_LIGHT]
 
-    for idx, r in enumerate(rows, start=1):
+    for idx, r in enumerate(normal_rows, start=1):
         obs_lines = wrap(r["observacion"], 48)
         grab_lines = wrap(r["grabacion"], 34)
         max_lines = max(len(obs_lines), len(grab_lines), 1)
@@ -381,7 +381,7 @@ async def reporte_pdf(
         line -= 12
 
     # Recorrido de filas (cada bloque nombre+imagen no se separa en salto de pAgina)
-    for idx, r in enumerate(rows, start=1):
+    for idx, r in enumerate(normal_rows, start=1):
         draw_image_block(idx, r["nombre"], r["imagen_bytes"])
 
     c.showPage()

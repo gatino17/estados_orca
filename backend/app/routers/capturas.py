@@ -494,11 +494,14 @@ async def listar_capturas(
             base = base.where(or_(Centro.last_seen.is_(None), Centro.last_seen < limit_dt))
 
     subq = base.subquery()
-    total_res = await db.execute(select(func.count()).select_from(subq))
+    table_base = base.where(Centro.es_central.is_(False))
+    table_subq = table_base.subquery()
+
+    total_res = await db.execute(select(func.count()).select_from(table_subq))
     total = int(total_res.scalar_one() or 0)
 
     total_centros_res = await db.execute(
-        select(func.count()).select_from(subq).where(subq.c.es_central.is_(False))
+        select(func.count()).select_from(table_subq)
     )
     total_centros = int(total_centros_res.scalar_one() or 0)
 
@@ -507,17 +510,17 @@ async def listar_capturas(
     )
     total_centrales = int(total_centrales_res.scalar_one() or 0)
 
-    # conteo de centros sin imagen (ultima_version_id es null)
+    # conteo de centros sin imagen, excluyendo centrales
     sin_img_res = await db.execute(
-        select(func.count()).select_from(subq).where(subq.c.ver_id.is_(None))
+        select(func.count()).select_from(table_subq).where(table_subq.c.ver_id.is_(None))
     )
     total_sin_imagen = int(sin_img_res.scalar_one() or 0)
 
-    # listado de nombres (limitado) sin imagen
+    # listado de nombres (limitado) sin imagen, excluyendo centrales
     missing_res = await db.execute(
-        select(subq.c.centro_id, subq.c.centro_nombre)
-        .where(subq.c.ver_id.is_(None))
-        .order_by(subq.c.centro_nombre.asc())
+        select(table_subq.c.centro_id, table_subq.c.centro_nombre)
+        .where(table_subq.c.ver_id.is_(None))
+        .order_by(table_subq.c.centro_nombre.asc())
         .limit(80)
     )
     missing_rows = missing_res.mappings().all()
@@ -570,7 +573,7 @@ async def listar_capturas(
 
     rows = (
         await db.execute(
-            base.order_by(Centro.nombre.asc(), Centro.id.asc()).offset(offset).limit(page_size)
+            table_base.order_by(Centro.nombre.asc(), Centro.id.asc()).offset(offset).limit(page_size)
         )
     ).mappings().all()
 
