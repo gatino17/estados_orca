@@ -494,7 +494,7 @@ async def listar_capturas(
             base = base.where(or_(Centro.last_seen.is_(None), Centro.last_seen < limit_dt))
 
     subq = base.subquery()
-    table_base = base.where(Centro.es_central.is_(False))
+    table_base = base.where(Centro.es_central.is_not(True))
     table_subq = table_base.subquery()
 
     total_res = await db.execute(select(func.count()).select_from(table_subq))

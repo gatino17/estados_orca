@@ -56,6 +56,10 @@ function estadoPillClasses(estadoRaw) {
   return "bg-slate-100 text-slate-700 ring-1 ring-slate-300";
 }
 
+function isCentralRow(row) {
+  return row?.es_central === true || String(row?.es_central).toLowerCase() === "true";
+}
+
 export default function CentrosTable({
   base,
   rows,
@@ -96,10 +100,10 @@ export default function CentrosTable({
   const safeTotalPages = Math.max(1, totalPages || 1);
   const startIdx = safeTotal ? (safePage - 1) * safePageSize + 1 : 0;
   const endIdx = safeTotal ? Math.min(startIdx + safePageSize - 1, safeTotal) : 0;
-  const viewRows = useMemo(() => (rows || []).filter((r) => !r?.es_central), [rows]);
+  const viewRows = useMemo(() => (rows || []).filter((r) => !isCentralRow(r)), [rows]);
   const centralRows = useMemo(() => {
     if (Array.isArray(centrales) && centrales.length) return centrales;
-    return (rows || []).filter((r) => r?.es_central);
+    return (rows || []).filter((r) => isCentralRow(r));
   }, [centrales, rows]);
   const hasStatus = useMemo(() => Object.values(statusById).some(Boolean), [statusById]);
   const missingCount = totalSinImagen || missingImages.size;
@@ -111,7 +115,7 @@ export default function CentrosTable({
     if (Array.isArray(missingNamesTotal) && missingNamesTotal.length) return missingNamesTotal;
     if (!rows?.length) return [];
     return rows
-      .filter((r) => !r?.es_central && !r?.ultima_imagen_url)
+      .filter((r) => !isCentralRow(r) && !r?.ultima_imagen_url)
       .map((r) => r.nombre || `Centro ${r.centro_id || r.id}`);
   }, [rows, missingNamesTotal]);
   const missingCenters = useMemo(() => {
@@ -120,7 +124,7 @@ export default function CentrosTable({
       return missingNames.map((name) => ({ nombre: name }));
     }
     return rows
-      .filter((r) => !r?.es_central && !r?.ultima_imagen_url)
+      .filter((r) => !isCentralRow(r) && !r?.ultima_imagen_url)
       .map((r) => ({
         centro_id: r.centro_id,
         nombre: r.nombre || `Centro ${r.centro_id || r.id}`,
@@ -131,7 +135,7 @@ export default function CentrosTable({
     const next = new Set();
     (rows || []).forEach((r) => {
       const k = r.id ?? r.centro_id;
-      if (!r?.es_central && !r?.ultima_imagen_url && k !== undefined) next.add(k);
+      if (!isCentralRow(r) && !r?.ultima_imagen_url && k !== undefined) next.add(k);
     });
     setMissingImages(next);
   }, [rows]);
