@@ -593,10 +593,8 @@ function DashboardShell({
     loadCapturas({ silent: false });
   }, [cliente?.id, fecha, debouncedSearchCentro, page, pageSize, base]);
 
-  // polling de capturas (silencioso) sin forzar recarga de imágenes
+  // polling de capturas (silencioso) sin duplicar la carga principal al cambiar pagina
   useEffect(() => {
-    loadCapturas({ silent: true });
-
     if (ivRowsRef.current) clearInterval(ivRowsRef.current);
     ivRowsRef.current = setInterval(() => {
       loadCapturas({ silent: true });

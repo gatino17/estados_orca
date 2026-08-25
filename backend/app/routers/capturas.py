@@ -499,11 +499,7 @@ async def listar_capturas(
 
     total_res = await db.execute(select(func.count()).select_from(table_subq))
     total = int(total_res.scalar_one() or 0)
-
-    total_centros_res = await db.execute(
-        select(func.count()).select_from(table_subq)
-    )
-    total_centros = int(total_centros_res.scalar_one() or 0)
+    total_centros = total
 
     total_centrales_res = await db.execute(
         select(func.count()).select_from(subq).where(subq.c.es_central.is_(True))
