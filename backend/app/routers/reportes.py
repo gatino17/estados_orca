@@ -23,6 +23,10 @@ from app.models.capturas import Captura, CapturaVersion
 from app.models.clientes import Cliente
 
 router = APIRouter(prefix="/api/reportes", tags=["reportes"])
+PDF_IMAGE_DIR = Path(__file__).resolve().parent.parent / "static" / "thumbs"
+PDF_IMAGE_DIR.mkdir(parents=True, exist_ok=True)
+PDF_IMAGE_MAX_W = 960
+PDF_IMAGE_QUALITY = 78
 
 
 def slugify_filename(s: str) -> str:
@@ -30,6 +34,62 @@ def slugify_filename(s: str) -> str:
     s = re.sub(r"\s+", "_", s.strip())
     s = re.sub(r"[^a-zA-Z0-9_\-\.]+", "", s)
     return s[:60] or "cliente"
+
+
+def pdf_image_cache_path(version_id: int) -> Path:
+    return PDF_IMAGE_DIR / f"pdf_v{version_id}_w{PDF_IMAGE_MAX_W}_q{PDF_IMAGE_QUALITY}.jpg"
+
+
+def build_pdf_image_bytes(raw_bytes: bytes) -> bytes:
+    img = Image.open(io.BytesIO(raw_bytes)).convert("RGB")
+    w, h = img.size
+    if w > PDF_IMAGE_MAX_W:
+        scale = PDF_IMAGE_MAX_W / float(w)
+        img = img.resize((int(w * scale), int(h * scale)), Image.Resampling.LANCZOS)
+
+    out = io.BytesIO()
+    img.save(out, format="JPEG", quality=PDF_IMAGE_QUALITY, optimize=True)
+    return out.getvalue()
+
+
+async def prepare_pdf_image_cache(db: AsyncSession, version_ids: list[int]) -> dict[int, bytes]:
+    unique_ids = sorted({int(v) for v in version_ids if v})
+    cached: dict[int, bytes] = {}
+    missing: list[int] = []
+
+    for version_id in unique_ids:
+        cache_path = pdf_image_cache_path(version_id)
+        if cache_path.exists():
+            try:
+                cached[version_id] = cache_path.read_bytes()
+                continue
+            except Exception:
+                pass
+        missing.append(version_id)
+
+    if not missing:
+        return cached
+
+    res = await db.execute(
+        select(CapturaVersion.id, CapturaVersion.imagen_bytes)
+        .where(CapturaVersion.id.in_(missing))
+    )
+    for row in res.mappings().all():
+        version_id = row["id"]
+        raw = row["imagen_bytes"]
+        if not raw:
+            continue
+        try:
+            data = build_pdf_image_bytes(raw)
+            cached[version_id] = data
+            try:
+                pdf_image_cache_path(version_id).write_bytes(data)
+            except Exception as e:
+                print(f"[pdf-cache] WARNING no se pudo escribir cache version={version_id}: {e!r}", flush=True)
+        except Exception as e:
+            print(f"[pdf-cache] WARNING no se pudo preparar imagen version={version_id}: {e!r}", flush=True)
+
+    return cached
 
 
 @router.get("/reporte/pdf")
@@ -67,8 +127,6 @@ async def reporte_pdf(
             CapturaVersion.id.label("ver_id"),
             CapturaVersion.captura_id.label("ver_captura_id"),
             CapturaVersion.tomada_en.label("ver_tomada_en"),
-            CapturaVersion.imagen_bytes.label("ver_bytes"),
-            CapturaVersion.content_type.label("ver_content_type"),
             func.row_number().over(partition_by=CapturaVersion.captura_id, order_by=CapturaVersion.tomada_en.desc()).label("rn"),
         )
     ).subquery()
@@ -87,8 +145,6 @@ async def reporte_pdf(
             cap_sq.c.cap_observacion,
             cap_sq.c.cap_grabacion,
             ver_sq.c.ver_id,
-            ver_sq.c.ver_bytes,
-            ver_sq.c.ver_content_type,
         )
         .join(cap_sq, and_(cap_sq.c.cap_centro_id == Centro.id, cap_sq.c.rn == 1), isouter=True)
         .join(ver_sq, and_(ver_sq.c.ver_captura_id == cap_sq.c.cap_id, ver_sq.c.rn == 1), isouter=True)
@@ -106,8 +162,6 @@ async def reporte_pdf(
             estado = r["cap_estado"] or "pendiente"
         else:
             estado = "sin_reporte"
-        img_bytes = r["ver_bytes"]
-
         rows.append({
             "nombre": r["centro_nombre"] or f"Centro {r['centro_id']}",
             "uuid": r["uuid_equipo"],
@@ -116,18 +170,18 @@ async def reporte_pdf(
             "estado": estado,
             "observacion": obs,
             "grabacion": grab,
-            "imagen_bytes": img_bytes,
-            "content_type": r["ver_content_type"],
+            "version_id": r["ver_id"],
         })
 
     if not rows:
         raise HTTPException(status_code=404, detail="No hay centros para este cliente")
 
     normal_rows = [row for row in rows if not row.get("es_central")]
-    total_centrales = sum(1 for row in rows if row.get("es_central"))
     total_centros = len(normal_rows)
-    con_imagen = sum(1 for row in normal_rows if row.get("imagen_bytes"))
-    sin_imagen = total_centros - con_imagen
+    pdf_images = await prepare_pdf_image_cache(
+        db,
+        [row["version_id"] for row in normal_rows if row.get("version_id")],
+    )
 
     # === PDF ===
     buf = io.BytesIO()
@@ -228,12 +282,10 @@ async def reporte_pdf(
 
     c.setFont("Helvetica", 10)
     c.drawString(left, line, f"Fecha del informe: {fecha.isoformat()}")
-    line -= 12
-    c.drawString(left, line, f"Generado: {now_local.strftime('%Y-%m-%d %H:%M:%S %Z')}")
     line -= 14
 
     c.setFont("Helvetica", 10)
-    c.drawString(left, line, f"Totales  Centros: {total_centros} | Centrales: {total_centrales} | Con imagen: {con_imagen} | Sin imagen: {sin_imagen}")
+    c.drawString(left, line, f"Total de centros: {total_centros}")
     line -= 10
     c.setStrokeColor(colors.lightgrey)
     c.line(left, line, right, line)
@@ -342,9 +394,7 @@ async def reporte_pdf(
                 scale = max_img_w / float(iw)
                 draw_w, draw_h = max_img_w, ih * scale
 
-                ibytes = io.BytesIO()
-                img.save(ibytes, format="JPEG", quality=90)
-                ibytes.seek(0)
+                ibytes = io.BytesIO(imagen_bytes)
                 has_image = True
             except Exception:
                 has_image = False
@@ -382,7 +432,7 @@ async def reporte_pdf(
 
     # Recorrido de filas (cada bloque nombre+imagen no se separa en salto de pAgina)
     for idx, r in enumerate(normal_rows, start=1):
-        draw_image_block(idx, r["nombre"], r["imagen_bytes"])
+        draw_image_block(idx, r["nombre"], pdf_images.get(r.get("version_id")))
 
     c.showPage()
     c.save()
