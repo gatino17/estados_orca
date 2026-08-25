@@ -108,8 +108,8 @@ export default function CentrosTable({
   const hasStatus = useMemo(() => Object.values(statusById).some(Boolean), [statusById]);
   const missingCount = totalSinImagen || missingImages.size;
   const showCentralCard = safeTotalCentrales > 0;
-  const showMissingCard = !showCentralCard && missingCount > 0;
-  const statsCount = 1 + (showCentralCard || showMissingCard ? 1 : 0);
+  const showMissingCard = missingCount > 0;
+  const statsCount = 1 + (showCentralCard ? 1 : 0) + (showMissingCard ? 1 : 0);
   const statsGridCols = statsCount >= 3 ? "lg:grid-cols-3" : statsCount === 2 ? "md:grid-cols-2" : "";
   const missingNames = useMemo(() => {
     if (Array.isArray(missingNamesTotal) && missingNamesTotal.length) return missingNamesTotal;
