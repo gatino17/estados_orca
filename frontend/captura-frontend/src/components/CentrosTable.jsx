@@ -387,7 +387,7 @@ export default function CentrosTable({
                           {safeTotalCentrales}
                         </div>
                         <div className="mt-1 text-[11px] font-medium text-slate-500">
-                          centrales
+                          centrales (PC)
                         </div>
                       </div>
                     </div>
@@ -407,18 +407,71 @@ export default function CentrosTable({
                                 <div className="truncate text-xs font-semibold text-slate-800" title={central.nombre}>
                                   {central.nombre || `Centro ${central.centro_id}`}
                                 </div>
-                                <div className="mt-0.5 truncate text-[11px] text-slate-500">
-                                  {statusById[centralKey] || central.estado || "pendiente"}
+                                <div
+                                  className={[
+                                    "mt-0.5 inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1",
+                                    central.online
+                                      ? "bg-emerald-50 text-emerald-700 ring-emerald-200"
+                                      : "bg-rose-50 text-rose-700 ring-rose-200",
+                                  ].join(" ")}
+                                >
+                                  <span
+                                    className={[
+                                      "h-2 w-2 rounded-full",
+                                      central.online ? "bg-emerald-500" : "bg-rose-500",
+                                    ].join(" ")}
+                                  />
+                                  {central.online ? "Conectado" : "Desconectado"}
                                 </div>
                               </div>
-                              <button
-                                type="button"
-                                onClick={() => retomar(central)}
-                                disabled={isBusy}
-                                className="shrink-0 rounded-md bg-teal-600 px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-teal-700 disabled:cursor-wait disabled:opacity-60"
-                              >
-                                {isBusy ? "Capturando..." : "Solicitar captura"}
-                              </button>
+                              <div className="flex shrink-0 items-center gap-2">
+                                {central.ultima_imagen_url && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setExpandedCentralIds((prev) => {
+                                        const next = new Set(prev);
+                                        if (next.has(central.centro_id)) next.delete(central.centro_id);
+                                        else next.add(central.centro_id);
+                                        return next;
+                                      });
+                                    }}
+                                    className="grid h-7 w-7 place-items-center rounded-md bg-sky-600 text-white hover:bg-sky-700"
+                                    title={showCentralImage ? "Ocultar imagen" : "Ver imagen"}
+                                    aria-label={showCentralImage ? "Ocultar imagen" : "Ver imagen"}
+                                  >
+                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                      <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" />
+                                      <circle cx="12" cy="12" r="3" />
+                                    </svg>
+                                  </button>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => retomar(central)}
+                                  disabled={isBusy}
+                                  className="rounded-md bg-teal-600 px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-teal-700 disabled:cursor-wait disabled:opacity-60"
+                                >
+                                  {isBusy ? "Capturando..." : "Solicitar captura"}
+                                </button>
+                                {canDelete && central.centro_id && (
+                                  <button
+                                    type="button"
+                                    onClick={() => eliminarCentro(central.centro_id)}
+                                    className="grid h-7 w-7 place-items-center rounded-md bg-rose-600 text-white hover:bg-rose-700"
+                                    title="Eliminar central"
+                                    aria-label={`Eliminar ${central.nombre || `central ${central.centro_id}`}`}
+                                  >
+                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                      <polyline points="3 6 5 6 21 6" />
+                                      <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+                                      <path d="M10 11v6" />
+                                      <path d="M14 11v6" />
+                                      <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+                                    </svg>
+                                  </button>
+                                )}
+                              </div>
                             </div>
                             {showCentralImage && (
                               <div className="mt-2">
@@ -426,15 +479,15 @@ export default function CentrosTable({
                                   <img
                                     src={thumb(central)}
                                     srcSet={thumbSrcSet(central)}
-                                    sizes="220px"
+                                    sizes="120px"
                                     loading="lazy"
                                     decoding="async"
-                                    className="h-24 w-full cursor-zoom-in rounded-md object-cover ring-1 ring-teal-200"
+                                    className="h-16 w-28 cursor-zoom-in rounded-md object-cover ring-1 ring-teal-200"
                                     onClick={() => openImage(central)}
                                     alt=""
                                   />
                                 ) : (
-                                  <div className="h-24 w-full rounded-md bg-gradient-to-br from-rose-500 via-red-400 to-orange-300 p-[1px]">
+                                  <div className="h-16 w-28 rounded-md bg-gradient-to-br from-rose-500 via-red-400 to-orange-300 p-[1px]">
                                     <div className="grid h-full w-full place-items-center rounded-[5px] bg-rose-50 text-xs font-semibold text-rose-700">
                                       Sin imagen
                                     </div>

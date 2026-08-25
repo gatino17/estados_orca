@@ -132,6 +132,7 @@ IDLE_SLEEP_SECONDS = float(os.getenv("IDLE_SLEEP_SECONDS", "1"))
 JITTER_MAX_SECONDS = float(os.getenv("JITTER_MAX_SECONDS", "3"))
 UPLOAD_MAX_RETRIES = int(os.getenv("UPLOAD_MAX_RETRIES", "4"))
 MONITOR_INDEX = int(os.getenv("MONITOR_INDEX", "0"))
+SCREEN_CAPTURE_SCOPE = os.getenv("SCREEN_CAPTURE_SCOPE", "all").lower()  # all | monitor
 DEBUG_SAVE = os.getenv("DEBUG_SAVE", "0") == "1"
 
 # ===== NETIO CONFIG =====
@@ -233,6 +234,26 @@ def _read_file_or_placeholder(path: Path, center_name: str) -> bytes:
 # =======================
 # CAPTURA PANTALLA
 # =======================
+def _capture_with_pillow_to_file(out_path: Path) -> bool:
+    try:
+        from PIL import ImageGrab
+
+        if SCREEN_CAPTURE_SCOPE == "all":
+            try:
+                img = ImageGrab.grab(all_screens=True)
+            except TypeError:
+                img = ImageGrab.grab()
+        else:
+            img = ImageGrab.grab()
+
+        img = img.convert("RGB")
+        img.save(out_path, "JPEG", quality=95)
+        log(f"pillow: screenshot guardado en {out_path} (size={img.size}, scope={SCREEN_CAPTURE_SCOPE})")
+        return True
+    except Exception as e:
+        log("screen capture ERROR (pillow):", repr(e))
+        return False
+
 def _capture_with_pyautogui_to_file(out_path: Path) -> bool:
     try:
         import pyautogui
@@ -250,11 +271,14 @@ def _capture_with_mss_to_file(out_path: Path) -> bool:
         import mss
         with mss.mss() as sct:
             monitors = sct.monitors
-            idx = MONITOR_INDEX if 0 <= MONITOR_INDEX < len(monitors) else (1 if len(monitors) > 1 else 0)
+            if SCREEN_CAPTURE_SCOPE == "all":
+                idx = 0
+            else:
+                idx = MONITOR_INDEX if 0 <= MONITOR_INDEX < len(monitors) else (1 if len(monitors) > 1 else 0)
             raw = sct.grab(monitors[idx])
             img = Image.frombytes("RGB", raw.size, raw.rgb)
             img.save(out_path, "JPEG", quality=95)
-            log(f"mss: screenshot guardado en {out_path} (size={img.size})")
+            log(f"mss: screenshot guardado en {out_path} (size={img.size}, monitor={idx}, scope={SCREEN_CAPTURE_SCOPE})")
             return True
     except Exception as e:
         log("screen capture ERROR (mss):", repr(e))
@@ -268,9 +292,11 @@ def capture_screen_and_save() -> Path:
             out.unlink()
     except Exception:
         pass
-    if _capture_with_pyautogui_to_file(out):
+    if _capture_with_pillow_to_file(out):
         return out
     if _capture_with_mss_to_file(out):
+        return out
+    if _capture_with_pyautogui_to_file(out):
         return out
     Image.new("RGB", (1280, 720), (30, 60, 90)).save(out, "JPEG", quality=85)
     log(f"placeholder: guardado en {out}")
@@ -526,6 +552,7 @@ def main():
         f"mode={IMAGE_MODE} image_path={IMAGE_PATH}",
         f"save_dir={IMAGE_SAVE_DIR} screenshot={SCREENSHOT_NAME}",
         f"center='{CENTER_NAME}' horarios={CAPTURE_AT}",
+        f"screen_scope={SCREEN_CAPTURE_SCOPE} monitor_index={MONITOR_INDEX}",
         f"NETIO host={NETIO_HOST}{(':'+NETIO_PORT) if NETIO_PORT else ''} user={NETIO_USER} push_every={NETIO_PUSH_EVERY}s",
         f"PC_REBOOT mode={PC_REBOOT_MODE} host={PC_REBOOT_HOST} delay={PC_REBOOT_DELAY_SECONDS}s enabled={PC_REBOOT_ENABLED}",
     )
