@@ -728,7 +728,12 @@ function DashboardShell({
               // Preparar transición rápida
               setSwitchingClienteName(formatDisplayName(c?.nombre) || c?.nombre || `Cliente ${c?.id}`);
               setLoading(true);
-              const search = debouncedSearchCentro.trim();
+              const isDifferentCliente = (c?.id ?? null) !== (cliente?.id ?? null);
+              const search = isDifferentCliente ? "" : debouncedSearchCentro.trim();
+              if (isDifferentCliente) {
+                setSearchCentro("");
+                setDebouncedSearchCentro("");
+              }
               const cached = prefetchCacheRef.current[`${c?.id}|${fecha}|${pageSize}|${search}`];
               if (cached) {
                 setRows(cached.rows);
