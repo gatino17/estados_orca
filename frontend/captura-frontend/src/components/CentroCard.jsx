@@ -14,6 +14,7 @@ export default function CentroCard({ base, row, selectedFecha, rowNumber = null,
   }, [row]);
 
   const hasImage = !!currentRow.ultima_imagen_url;
+  const agentOnline = !!currentRow.online;
   const basePath = hasImage ? currentRow.ultima_imagen_url.replace("/ultima/image", "/ultima/thumb") : null;
   const thumb = hasImage ? `${base}${basePath}?max_w=640&t=${imgKey}` : null;
   const large = hasImage ? `${base}${currentRow.ultima_imagen_url}?t=${imgKey}` : null;
@@ -241,8 +242,21 @@ export default function CentroCard({ base, row, selectedFecha, rowNumber = null,
             >
               {currentRow.nombre || `Centro ${currentRow.centro_id}`}
             </h3>
-            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-700">
-              {currentRow.estado}
+            <span
+              className={[
+                "inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1",
+                agentOnline
+                  ? "bg-emerald-50 text-emerald-700 ring-emerald-200"
+                  : "bg-rose-50 text-rose-700 ring-rose-200",
+              ].join(" ")}
+            >
+              <span
+                className={[
+                  "h-2 w-2 rounded-full",
+                  agentOnline ? "bg-emerald-500" : "bg-rose-500",
+                ].join(" ")}
+              />
+              Agente {agentOnline ? "conectado" : "desconectado"}
             </span>
           </div>
 
