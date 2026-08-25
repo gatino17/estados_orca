@@ -288,45 +288,45 @@ export default function CentrosTable({
     <>
       <div className="bg-white rounded-2xl shadow-lg ring-1 ring-black/5 overflow-hidden">
         {/* Toolbar de paginacion */}
-        <div className="px-3 md:px-4 py-3 flex flex-wrap items-center gap-3 border-b bg-slate-50/60">
+        <div className="px-3 py-3 md:px-4 flex flex-col gap-3 border-b bg-slate-50/70 sm:flex-row sm:flex-wrap sm:items-center">
           <div className="text-sm text-slate-700">
             Mostrando <b>{safeTotal ? startIdx : 0}</b> - <b>{endIdx}</b> de <b>{safeTotal}</b>
           </div>
-          <div className="ml-auto flex items-center gap-2">
-            <label className="text-xs text-slate-600">Filas por pagina</label>
+          <div className="flex flex-wrap items-center gap-2 rounded-xl bg-white p-1.5 ring-1 ring-slate-200 shadow-sm sm:ml-auto">
+            <label className="pl-1 text-xs font-medium text-slate-500">Filas</label>
             <select
               value={pageSize}
               onChange={(e) => onPageSizeChange?.(parseInt(e.target.value, 10) || 10)}
-              className="border rounded px-2 py-1 text-sm"
+              className="h-8 rounded-lg border-slate-300 bg-slate-50 px-2 text-sm font-medium text-slate-800"
             >
               {[10, 15, 30, 50].map((n) => (
                 <option key={n} value={n}>{n}</option>
               ))}
             </select>
-            <div className="flex items-center gap-1">
+            <div className="ml-auto flex items-center gap-1 sm:ml-0">
               <button
                 onClick={() => onPageChange?.(1)}
                 disabled={safePage <= 1}
-                className="px-2 py-1 rounded border text-sm disabled:opacity-50"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-300 bg-white text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-300"
                 title="Primera"
               >{"<<"}</button>
               <button
                 onClick={() => onPageChange?.(Math.max(1, safePage - 1))}
                 disabled={safePage <= 1}
-                className="px-2 py-1 rounded border text-sm disabled:opacity-50"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-300 bg-white text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-300"
                 title="Anterior"
               >{"<"}</button>
-              <span className="text-xs text-slate-600 px-2">{safePage} / {safeTotalPages}</span>
+              <span className="min-w-14 rounded-lg bg-blue-50 px-2 py-1.5 text-center text-xs font-bold text-blue-800 ring-1 ring-blue-100">{safePage} / {safeTotalPages}</span>
               <button
                 onClick={() => onPageChange?.(Math.min(safeTotalPages, safePage + 1))}
                 disabled={safePage >= safeTotalPages}
-                className="px-2 py-1 rounded border text-sm disabled:opacity-50"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-900 bg-white text-xs font-semibold text-slate-900 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-300"
                 title="Siguiente"
               >{">"}</button>
               <button
                 onClick={() => onPageChange?.(safeTotalPages)}
                 disabled={safePage >= safeTotalPages}
-                className="px-2 py-1 rounded border text-sm disabled:opacity-50"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-900 bg-white text-xs font-semibold text-slate-900 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-300"
                 title="Ultima"
               >{">>"}</button>
             </div>
@@ -560,7 +560,148 @@ export default function CentrosTable({
             )}
           </div>
         </div>
-        <table className="min-w-full text-sm">
+        <div className="space-y-2 bg-slate-100/70 p-2 sm:hidden">
+          {viewRows.map((row, index) => {
+            const key = row.id ?? `mobile-centro-${row.centro_id}`;
+            const estadoCls = estadoPillClasses(row.estado);
+            const rowNumber = safeTotal ? startIdx + index : index + 1;
+            const rowKey = row.id ?? row.centro_id;
+            const isBusy = busyId === rowKey;
+
+            return (
+              <article
+                key={key}
+                data-centro-id={row.centro_id}
+                className={[
+                  "rounded-xl bg-white p-3 shadow-sm ring-1 ring-slate-200",
+                  Number(highlightedCentroId) === Number(row.centro_id)
+                    ? "outline outline-2 outline-rose-400 outline-offset-[-2px]"
+                    : "",
+                ].join(" ")}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 text-[11px] font-medium text-slate-500">
+                      <span>N° {rowNumber}</span>
+                      <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] ${estadoCls}`}>
+                        {row.estado}
+                      </span>
+                    </div>
+                    <div className="mt-1 flex min-w-0 items-center gap-2">
+                      <Dot online={row.online} />
+                      <span className="truncate text-sm font-semibold text-slate-900">
+                        {row.nombre || `Centro ${row.centro_id}`}
+                      </span>
+                    </div>
+                    {(row.observacion || row.grabacion) && (
+                      <div className="mt-1 space-y-0.5 text-[11px] text-slate-500">
+                        {row.observacion && (
+                          <div>
+                            <b>Obs:</b> {row.observacion}
+                          </div>
+                        )}
+                        {row.grabacion && (
+                          <div>
+                            <b>Grab:</b> {row.grabacion}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="mt-3 flex items-end justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    {row.ultima_imagen_url ? (
+                      <img
+                        src={thumb(row)}
+                        srcSet={thumbSrcSet(row)}
+                        sizes="150px"
+                        loading="lazy"
+                        decoding="async"
+                        fetchpriority="low"
+                        className="h-28 w-full max-w-[190px] cursor-zoom-in rounded-lg object-cover ring-1 ring-slate-200"
+                        onClick={() => openImage(row)}
+                        alt=""
+                        onLoad={() => setMissingImages((prev) => {
+                          const next = new Set(prev);
+                          next.delete(row.id ?? row.centro_id);
+                          return next;
+                        })}
+                      />
+                    ) : (
+                      <div className="h-28 w-full max-w-[190px] rounded-lg bg-gradient-to-br from-rose-500 via-red-400 to-orange-300 p-[2px] shadow-sm">
+                        <div className="grid h-full w-full place-items-center rounded-[7px] bg-rose-50 text-xs font-semibold text-rose-700">
+                          Sin imagen
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex shrink-0 flex-col gap-2">
+                    <button
+                      onClick={() => retomar(row)}
+                      disabled={isBusy}
+                      className={[
+                        "inline-flex h-9 w-11 items-center justify-center rounded-lg transition focus:outline-none focus:ring-2 focus:ring-offset-1",
+                        btn.sky,
+                        btn.disabled,
+                        isBusy ? "cursor-wait" : "",
+                      ].join(" ")}
+                      title="Solicitar nueva captura"
+                      aria-label="Solicitar nueva captura"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <rect x="3" y="7" width="18" height="14" rx="2" ry="2" />
+                        <path d="M7 7l2-3h6l2 3" />
+                        <circle cx="12" cy="14" r="3" />
+                      </svg>
+                    </button>
+
+                    {row.id && (
+                      <button
+                        onClick={() => setEditRow(row)}
+                        className="inline-flex h-9 w-11 items-center justify-center rounded-lg bg-emerald-600 text-white transition hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-300 focus:ring-offset-1"
+                        title="Editar metadatos"
+                        aria-label="Editar metadatos"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                          <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                          <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5Z" />
+                        </svg>
+                      </button>
+                    )}
+
+                    {row.id && canDelete && (
+                      <button
+                        onClick={() => eliminarCentro(row.centro_id)}
+                        className="inline-flex h-9 w-11 items-center justify-center rounded-lg bg-rose-600 text-white transition hover:bg-rose-700 focus:outline-none focus:ring-2 focus:ring-rose-300 focus:ring-offset-1"
+                        title="Eliminar centro"
+                        aria-label={`Eliminar ${row.nombre || `centro ${row.centro_id}`}`}
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                          <path d="M3 6h18" />
+                          <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+                          <path d="M10 11v6" />
+                          <path d="M14 11v6" />
+                          <path d="M9 6V4a3 3 0 0 1 3-3h0a3 3 0 0 1 3 3v2" />
+                        </svg>
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {hasStatus && statusById[rowKey] && (
+                  <div className="mt-2 rounded-md bg-slate-50 px-2 py-1 text-[11px] text-slate-600">
+                    {statusById[rowKey]}
+                  </div>
+                )}
+              </article>
+            );
+          })}
+        </div>
+
+        <table className="hidden min-w-full text-sm sm:table">
           <thead className="text-slate-700 text-[12px] uppercase tracking-wide">
             <tr className="sticky top-0 z-10 bg-slate-50/90 backdrop-blur supports-[backdrop-filter]:bg-slate-50/60">
               <th className="px-3 md:px-4 py-3 text-left w-16">N°</th>

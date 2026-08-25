@@ -16,6 +16,7 @@ export default function Sidebar({
   selectedClienteId,
   compact = false,
   onManageUsers,
+  onLogout,
   currentUser,
   refreshKey = 0,
 }) {
@@ -52,7 +53,7 @@ export default function Sidebar({
         "text-white flex flex-col",
       ].join(" ")}
     >
-      <div className="px-4 py-4 border-b border-white/10">
+      <div className={compact ? "px-1 py-3 border-b border-white/10" : "px-4 py-4 border-b border-white/10"}>
         {!compact ? (
           <>
             <h2 className="text-lg font-semibold">Clientes</h2>
@@ -60,12 +61,12 @@ export default function Sidebar({
           </>
         ) : (
           <div className="flex items-center justify-center">
-            <span className="text-[11px] tracking-widest text-white/70 uppercase">CL</span>
+            <span className="text-[10px] tracking-widest text-white/70 uppercase">CL</span>
           </div>
         )}
       </div>
 
-      <div className="flex-1 overflow-y-auto p-2">
+      <div className={compact ? "flex-1 overflow-y-auto px-1 py-2" : "flex-1 overflow-y-auto p-2"}>
         {loading && !compact && (
           <div className="text-sm text-white/80 px-2 py-2">Cargando...</div>
         )}
@@ -104,13 +105,13 @@ export default function Sidebar({
                   onMouseEnter={() => onHoverCliente?.(cliente)}
                   onClick={() => onSelectCliente?.(cliente)}
                   className={[
-                    "h-10 w-10 inline-flex items-center justify-center rounded-full",
+                    "h-9 w-9 md:h-10 md:w-10 inline-flex items-center justify-center rounded-full",
                     "bg-white/10 hover:bg-white/20",
                     isSelected ? "ring-2 ring-white/50 bg-white/20" : "ring-1 ring-white/10",
                     baseClasses,
                   ].join(" ")}
                 >
-                  <span className="text-sm font-semibold">
+                  <span className="text-xs font-semibold md:text-sm">
                     {initials(cliente.nombre || `C${cliente.id}`)}
                   </span>
                 </button>
@@ -120,7 +121,7 @@ export default function Sidebar({
         </ul>
       </div>
 
-      <div className="px-4 py-4 border-t border-white/10 bg-white/5">
+      <div className={compact ? "px-1 py-3 border-t border-white/10 bg-white/5" : "px-4 py-4 border-t border-white/10 bg-white/5"}>
         {!compact ? (
           <div className="space-y-3">
             {currentUser && (
@@ -143,15 +144,34 @@ export default function Sidebar({
             >
               Usuarios
             </button>
+
+            <button
+              onClick={onLogout}
+              className="md:hidden w-full inline-flex items-center justify-center gap-2 rounded-lg bg-white/10 px-3 py-2 text-sm font-semibold text-white ring-1 ring-white/15 hover:bg-white/15 transition focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-blue-950 focus:ring-white"
+            >
+              Cerrar sesion
+            </button>
           </div>
         ) : (
-          <div className="flex justify-center">
+          <div className="flex flex-col items-center gap-2">
             <button
               onClick={onManageUsers}
-              className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-white text-slate-900 text-sm font-semibold hover:bg-slate-100 transition focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-blue-950 focus:ring-white"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-white text-slate-900 text-xs font-semibold hover:bg-slate-100 transition focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-blue-950 focus:ring-white md:h-10 md:w-10 md:text-sm"
               aria-label="Gestionar usuarios"
             >
               US
+            </button>
+            <button
+              onClick={onLogout}
+              className="md:hidden inline-flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-white ring-1 ring-white/20 hover:bg-white/15 transition focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-blue-950 focus:ring-white"
+              aria-label="Cerrar sesion"
+              title="Cerrar sesion"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M15.75 8.75 19 12l-3.25 3.25" />
+                <path d="M19 12H10.5" />
+                <path d="M12 7V5a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2v-2" />
+              </svg>
             </button>
           </div>
         )}

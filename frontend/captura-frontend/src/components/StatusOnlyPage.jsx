@@ -663,11 +663,11 @@ export default function StatusOnlyPage({ base, cliente, embedded = false }) {
             </div>
           </div>
 
-          <div className="flex items-center justify-between gap-3 border-t border-slate-200 px-4 py-3 text-sm text-slate-600">
-            <div className="flex items-center gap-2">
-              <span>Filas por página</span>
+          <div className="flex flex-col gap-3 border-t border-slate-200 bg-slate-50/70 px-3 py-3 text-sm text-slate-600 sm:flex-row sm:items-center sm:justify-between sm:px-4">
+            <div className="flex flex-wrap items-center gap-2 rounded-xl bg-white p-1.5 ring-1 ring-slate-200 shadow-sm">
+              <span className="pl-1 text-xs font-medium text-slate-500">Filas</span>
               <select
-                className="border rounded px-2 py-1 text-xs"
+                className="h-8 rounded-lg border-slate-300 bg-slate-50 px-2 text-xs font-medium text-slate-800"
                 value={pageSize}
                 onChange={(e) => {
                   const next = parseInt(e.target.value, 10) || 10;
@@ -680,25 +680,25 @@ export default function StatusOnlyPage({ base, cliente, embedded = false }) {
                 ))}
               </select>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1">
               <button
-                className="px-2 py-1 rounded border text-xs disabled:opacity-50"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-300 bg-white text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-300"
                 onClick={() => setPage(1)}
                 disabled={page <= 1}
               >{"<<"}</button>
               <button
-                className="px-2 py-1 rounded border text-xs disabled:opacity-50"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-300 bg-white text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-300"
                 onClick={() => setPage((p) => Math.max(1, p - 1))}
                 disabled={page <= 1}
               >{"<"}</button>
-              <span>{page} / {totalPages}</span>
+              <span className="min-w-14 rounded-lg bg-blue-50 px-2 py-1.5 text-center text-xs font-bold text-blue-800 ring-1 ring-blue-100">{page} / {totalPages}</span>
               <button
-                className="px-2 py-1 rounded border text-xs disabled:opacity-50"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-900 bg-white text-xs font-semibold text-slate-900 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-300"
                 onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                 disabled={page >= totalPages}
               >{">"}</button>
               <button
-                className="px-2 py-1 rounded border text-xs disabled:opacity-50"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-900 bg-white text-xs font-semibold text-slate-900 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-300"
                 onClick={() => setPage(totalPages)}
                 disabled={page >= totalPages}
               >{">>"}</button>

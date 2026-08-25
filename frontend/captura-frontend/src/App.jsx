@@ -380,9 +380,9 @@ function DashboardShell({
       if (typeof window !== "undefined" && window.matchMedia("(min-width: 768px)").matches) {
         return true;
       }
-      return JSON.parse(localStorage.getItem("menuOpen") ?? "true");
+      return false;
     } catch {
-      return true;
+      return false;
     }
   });
   useEffect(() => {
@@ -706,14 +706,13 @@ function DashboardShell({
           ].join(" ")}
         />
         <div
-          aria-hidden={!menuOpen}
           className={[
             "overflow-hidden",
             // Sidebar fijo también en desktop
             "fixed inset-y-0 left-0 z-40",
             "transition-all duration-300",
-            // móvil: desliza; desktop: rail (64/16)
-            menuOpen ? "translate-x-0 w-64 md:w-64" : "-translate-x-full md:translate-x-0 md:w-16",
+            // movil cerrado: oculto; desktop cerrado: rail compacto
+            menuOpen ? "translate-x-0 w-64 md:w-64" : "-translate-x-full w-64 md:translate-x-0 md:w-16",
           ].join(" ")}
         >
           <Sidebar
@@ -761,6 +760,7 @@ function DashboardShell({
             }}
             onManageUsers={() => isAdmin && goToSection("users")}
             currentUser={currentUser}
+            onLogout={onLogout}
             refreshKey={clientesRefreshKey}
           />
         </div>
@@ -770,13 +770,13 @@ function DashboardShell({
       <div
         className={[
           "flex-1 min-w-0",
-          // deja espacio permanente para el sidebar fijo en desktop
+          // en mobile el sidebar cerrado no ocupa espacio; en desktop queda el rail
           menuOpen ? "md:ml-64" : "md:ml-16",
         ].join(" ")}
       >
         {/* Topbar */}
         <div className="sticky top-0 z-30 bg-gradient-to-r from-blue-950 via-blue-900 to-indigo-800 text-white shadow ring-1 ring-white/10">
-          <div className="max-w-7xl mx-auto px-4 py-3 flex flex-wrap items-center gap-3">
+          <div className="max-w-7xl mx-auto px-2 py-2 sm:px-4 sm:py-3 flex flex-wrap items-center gap-2 sm:gap-3">
             {/* Switch pegado al sidebar */}
             <div className="hidden md:flex items-center -ml-1 mr-2">
               <ToggleSwitch
@@ -789,13 +789,15 @@ function DashboardShell({
             </div>
 
             {/* Hamburguesa (movil) */}
-            <Hamburger inverted open={menuOpen} onClick={() => setMenuOpen(!menuOpen)} />
+            <div className="flex w-full md:hidden">
+              <Hamburger inverted open={menuOpen} onClick={() => setMenuOpen(!menuOpen)} />
+            </div>
 
             <div className="hidden md:block w-px h-6 bg-white/20 mx-1" />
 
             {/* Titulo dinamico */}
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-lg font-semibold tracking-wide">
+            <div className="min-w-0 flex-1 sm:flex-none flex flex-wrap items-center gap-2">
+              <span className="truncate text-sm font-semibold tracking-wide sm:text-lg">
                 {isUsersSection
                   ? "Gestion de Usuarios"
                   : isSummarySection
@@ -803,9 +805,9 @@ function DashboardShell({
                   : "Monitoreo de Centros"}
               </span>
               {isCentrosSection && displayClienteName && (
-                <span className="inline-flex items-center gap-1 text-[11px] uppercase tracking-[0.25em] px-3 py-1 rounded-full bg-white/10 ring-1 ring-white/20">
+                <span className="inline-flex max-w-full items-center gap-1 self-start rounded-full bg-white/10 px-2 py-0.5 text-[10px] uppercase tracking-[0.18em] ring-1 ring-white/20 sm:px-3 sm:py-1 sm:text-[11px] sm:tracking-[0.25em]">
                   Cliente:
-                  <span className="font-semibold normal-case tracking-normal">
+                  <span className="truncate font-semibold normal-case tracking-normal">
                     {displayClienteName}
                   </span>
                 </span>
@@ -813,11 +815,11 @@ function DashboardShell({
             </div>
 
             {/* Acciones derechas */}
-            <div className="ml-auto flex flex-wrap items-center gap-2 justify-end min-w-[260px]">
+            <div className="flex w-full flex-wrap items-center gap-1.5 sm:ml-auto sm:w-auto sm:min-w-[260px] sm:justify-end sm:gap-2">
               <button
                 onClick={() => goToSection(isSummarySection ? "centros" : "summary")}
                 aria-pressed={isSummarySection}
-                className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-blue-900 ${
+                className={`inline-flex shrink-0 items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs font-medium transition focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-blue-900 sm:px-3 sm:py-2 sm:text-sm ${
                   isSummarySection
                     ? "bg-white text-slate-900 shadow focus:ring-white"
                     : "bg-white/10 text-white/85 ring-1 ring-white/20 hover:bg-white/15 focus:ring-white/30"
@@ -870,7 +872,7 @@ function DashboardShell({
                     disabled={!cliente?.id}
                     className={[
                       "inline-flex items-center justify-center",
-                      "h-10 w-10 rounded-full",
+                      "h-8 w-8 shrink-0 rounded-full sm:h-10 sm:w-10",
                       "bg-emerald-500 text-slate-900",
                       "hover:bg-emerald-400",
                       "ring-1 ring-emerald-200 shadow",
@@ -883,7 +885,7 @@ function DashboardShell({
                     <svg
                       xmlns="http://www.w3.org/2000/svg"
                       viewBox="0 0 24 24"
-                      className="h-5 w-5"
+                      className="h-4 w-4 sm:h-5 sm:w-5"
                       aria-hidden="true"
                     >
                       <path
@@ -896,33 +898,33 @@ function DashboardShell({
                     </svg>
                   </button>
 
-                  <div className="flex sm:hidden items-center gap-2">
+                  <div className="flex shrink-0 items-center gap-1 rounded-lg bg-white/10 p-1 ring-1 ring-white/15 sm:hidden">
                     <button
                       onClick={() => setView("table")}
                       aria-pressed={view === "table"}
-                      className={`px-3 py-1 rounded-md text-xs font-medium ${
+                      className={`px-2.5 py-1 rounded-md text-xs font-medium ${
                         view === "table"
                           ? "bg-white text-slate-900"
                           : "bg-white/10 text-white/85"
                       }`}
                     >
-                      Tabla
+                      Centros
                     </button>
                     <button
                       onClick={() => setView("cards")}
                       aria-pressed={view === "cards"}
-                      className={`px-3 py-1 rounded-md text-xs font-medium ${
+                      className={`px-2.5 py-1 rounded-md text-xs font-medium ${
                         view === "cards"
                           ? "bg-white text-slate-900"
                           : "bg-white/10 text-white/85"
                       }`}
                     >
-                      Tarjetas
+                      Reinicios
                     </button>
                     <button
                       onClick={() => setView("status")}
                       aria-pressed={view === "status"}
-                      className={`px-3 py-1 rounded-md text-xs font-medium ${
+                      className={`px-2.5 py-1 rounded-md text-xs font-medium ${
                         view === "status"
                           ? "bg-white text-slate-900"
                           : "bg-white/10 text-white/85"
@@ -936,7 +938,7 @@ function DashboardShell({
 
               <button
                 onClick={onLogout}
-                className="inline-flex items-center justify-center rounded-full bg-white/10 px-3 py-2 text-white hover:bg-white/20 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-blue-900 focus:ring-white"
+                className="hidden h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-blue-900 focus:ring-white sm:inline-flex sm:h-auto sm:w-auto sm:px-3 sm:py-2"
                 title="Cerrar sesi?n"
                 aria-label="Cerrar sesi?n"
               >
@@ -996,17 +998,17 @@ function DashboardShell({
                     />
                   </div>
 
-                  <div>
+                  <div className="order-1 min-w-[170px] flex-1 sm:flex-none">
                     <label className="block text-sm text-slate-600">Fecha</label>
                     <input
                       type="date"
-                      className="border rounded px-3 py-2 text-sm"
+                      className="w-full border rounded px-3 py-2 text-sm sm:w-auto"
                       value={fecha}
                       onChange={(e) => setFecha(e.target.value)}
                     />
                   </div>
 
-                  <div className="min-w-[240px] flex-1 sm:flex-none">
+                  <div className="order-3 min-w-[240px] flex-[1_0_100%] sm:order-2 sm:flex-none">
                     <label className="block text-sm text-slate-600">Buscar centro</label>
                     <div className="relative">
                       <input
@@ -1031,15 +1033,8 @@ function DashboardShell({
                   </div>
 
                   <button
-                    onClick={() => loadCapturas({ silent: false })}
-                    className="px-3 py-2 rounded-lg bg-gradient-to-r from-blue-950 via-blue-900 to-indigo-800 text-white shadow ring-1 ring-white/10 hover:from-blue-900 hover:via-blue-800 hover:to-indigo-700 focus:outline-none focus:ring-2 focus:ring-blue-300"
-                  >
-                    Buscar
-                  </button>
-
-                  <button
                     onClick={descargarPdf}
-                    className="group inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-rose-600 text-white ring-1 ring-rose-700 shadow-sm hover:bg-rose-700 focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-rose-400"
+                    className="group order-2 inline-flex items-center gap-2 self-end rounded-lg bg-rose-600 px-3 py-2 text-white ring-1 ring-rose-700 shadow-sm hover:bg-rose-700 focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-rose-400 sm:order-4"
                     title="Descargar informe PDF (hoy)"
                     aria-label="Descargar PDF"
                   >
@@ -1263,12 +1258,12 @@ function DashboardShell({
                     </div>
                   </div>
 
-                  <div className="flex flex-col gap-3 rounded-lg border border-slate-200 bg-white px-4 py-3 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex flex-col gap-3 rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-3 shadow-sm sm:flex-row sm:items-center sm:justify-between sm:px-4">
                     <div className="text-sm text-slate-700">
                       Mostrando <b>{cardsStartIdx}</b> - <b>{cardsEndIdx}</b> de <b>{cardsTotal}</b>
                     </div>
-                    <div className="flex flex-wrap items-center gap-3">
-                      <label className="text-xs text-slate-600">Filas por pagina</label>
+                    <div className="flex flex-wrap items-center gap-2 rounded-xl bg-white p-1.5 ring-1 ring-slate-200 shadow-sm sm:gap-3">
+                      <label className="pl-1 text-xs font-medium text-slate-500">Filas</label>
                       <select
                         value={pageSize}
                         onChange={(e) => {
@@ -1277,36 +1272,36 @@ function DashboardShell({
                           setPage(1);
                           try { localStorage.setItem("ct.pageSize", String(ps)); } catch {}
                         }}
-                        className="rounded-md border px-2 py-1 text-sm"
+                        className="h-8 rounded-lg border-slate-300 bg-slate-50 px-2 text-sm font-medium text-slate-800"
                       >
                         {[10, 15, 30, 50].map((n) => (
                           <option key={n} value={n}>{n}</option>
                         ))}
                       </select>
-                      <div className="flex items-center gap-1">
+                      <div className="ml-auto flex items-center gap-1 sm:ml-0">
                         <button
                           onClick={() => setPage(1)}
                           disabled={cardsPage <= 1}
-                          className="rounded border px-2 py-1 text-sm disabled:opacity-50"
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-300 bg-white text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-300"
                           title="Primera"
                         >{"<<"}</button>
                         <button
                           onClick={() => setPage(Math.max(1, cardsPage - 1))}
                           disabled={cardsPage <= 1}
-                          className="rounded border px-2 py-1 text-sm disabled:opacity-50"
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-300 bg-white text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-300"
                           title="Anterior"
                         >{"<"}</button>
-                        <span className="px-2 text-xs text-slate-600">{cardsPage} / {cardsTotalPages}</span>
+                        <span className="min-w-14 rounded-lg bg-blue-50 px-2 py-1.5 text-center text-xs font-bold text-blue-800 ring-1 ring-blue-100">{cardsPage} / {cardsTotalPages}</span>
                         <button
                           onClick={() => setPage(Math.min(cardsTotalPages, cardsPage + 1))}
                           disabled={cardsPage >= cardsTotalPages}
-                          className="rounded border px-2 py-1 text-sm disabled:opacity-50"
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-900 bg-white text-xs font-semibold text-slate-900 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-300"
                           title="Siguiente"
                         >{">"}</button>
                         <button
                           onClick={() => setPage(cardsTotalPages)}
                           disabled={cardsPage >= cardsTotalPages}
-                          className="rounded border px-2 py-1 text-sm disabled:opacity-50"
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-900 bg-white text-xs font-semibold text-slate-900 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-300"
                           title="Ultima"
                         >{">>"}</button>
                       </div>
