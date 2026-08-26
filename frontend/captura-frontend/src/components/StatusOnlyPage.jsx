@@ -443,6 +443,33 @@ export default function StatusOnlyPage({ base, cliente, embedded = false }) {
     [base, clienteId]
   );
 
+  const loadNetioStatuses = useCallback(async () => {
+    if (!items.length) return;
+    try {
+      const response = await fetch(`${base || ""}${NETIO_API_BASE}/state/all`, { cache: "no-store" });
+      if (!response.ok) return;
+      const data = await response.json();
+      const stateByUuid = {};
+      for (const state of data?.items || []) {
+        if (state?.uuid_equipo) stateByUuid[state.uuid_equipo] = state;
+      }
+      setNetioStatusById((prev) => {
+        const next = { ...prev };
+        for (const item of items) {
+          const state = stateByUuid[item.uuid_equipo];
+          if (!state) continue;
+          next[item.id] = {
+            online: !!state.online,
+            stale: !!state.stale,
+          };
+        }
+        return next;
+      });
+    } catch (error) {
+      console.error("StatusOnlyPage loadNetioStatuses:", error);
+    }
+  }, [base, items]);
+
   useEffect(() => {
     if (!clienteId) {
       setItems([]);
@@ -482,6 +509,16 @@ export default function StatusOnlyPage({ base, cliente, embedded = false }) {
       document.removeEventListener("visibilitychange", onVis);
     };
   }, [autoRefresh, clienteId, loadStatus]);
+
+  useEffect(() => {
+    if (!clienteId || !items.length) return undefined;
+
+    loadNetioStatuses();
+    if (!autoRefresh) return undefined;
+
+    const intervalId = setInterval(loadNetioStatuses, STATUS_AUTO_REFRESH_MS);
+    return () => clearInterval(intervalId);
+  }, [autoRefresh, clienteId, items.length, loadNetioStatuses]);
 
   const filteredItems = useMemo(() => {
     const term = normalizeSearch(searchCentro);
@@ -529,17 +566,24 @@ export default function StatusOnlyPage({ base, cliente, embedded = false }) {
 
   const { totalCentros, totalCentrales, onlineCount, offlineCount } = useMemo(() => {
     const total = sorted.length;
-    const online = sorted.filter((row) => row.online).length;
+    const online = sorted.filter((row) => {
+      const status = netioStatusById[row.id];
+      return !!status?.online && !status?.stale;
+    }).length;
+    const offline = sorted.filter((row) => {
+      const status = netioStatusById[row.id];
+      return !!status && (!status.online || status.stale);
+    }).length;
     return {
       totalCentros: total,
       totalCentrales: centralRows.length,
       onlineCount: online,
-      offlineCount: total - online,
+      offlineCount: offline,
     };
-  }, [centralRows.length, sorted]);
+  }, [centralRows.length, netioStatusById, sorted]);
 
   const onlinePercent = totalCentros ? Math.round((onlineCount / totalCentros) * 100) : 0;
-  const offlinePercent = totalCentros ? 100 - onlinePercent : 0;
+  const offlinePercent = totalCentros ? Math.round((offlineCount / totalCentros) * 100) : 0;
   const lastUpdatedLabel = lastFetched ? fmtLastSeen(lastFetched.toISOString()) : "-";
   const hasSearch = normalizeSearch(searchCentro).length > 0;
   const showEmptyState = !loading && sorted.length === 0;
