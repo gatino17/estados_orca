@@ -33,7 +33,16 @@ function fmtLastSeen(iso) {
   }
 }
 
-const STATUS_THRESHOLD_SEC = 20;
+function normalizeSearch(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+const STATUS_THRESHOLD_SEC = 120;
+const STATUS_AUTO_REFRESH_MS = 30000;
 const FETCH_POLL_MS = 1000;
 const CONFIRM_INTERVAL_MS = 400;
 const CONFIRM_TIMEOUT_MS = 25000;
@@ -96,7 +105,7 @@ function MiniBtn({ title, onClick, disabled, busy, children }) {
   );
 }
 
-function NetioCell({ base, row }) {
+function NetioCell({ base, row, onStatusChange }) {
   const [states, setStates] = useState({
     pc: false,
     cams: false,
@@ -146,7 +155,8 @@ function NetioCell({ base, row }) {
     }));
     setNetioOnline(mapped.online);
     setStale(mapped.stale);
-  }, [getStateOnce]);
+    onStatusChange?.(row.id, { online: mapped.online, stale: mapped.stale });
+  }, [getStateOnce, onStatusChange, row.id]);
 
   useEffect(() => {
     let intervalId;
@@ -380,11 +390,22 @@ export default function StatusOnlyPage({ base, cliente, embedded = false }) {
   const clienteId = cliente?.id ?? null;
   const [items, setItems] = useState([]);
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(25);
+  const [pageSize, setPageSize] = useState(10);
   const [loading, setLoading] = useState(false);
   const [autoRefresh, setAutoRefresh] = useState(true);
+  const [searchCentro, setSearchCentro] = useState("");
+  const [netioStatusById, setNetioStatusById] = useState({});
   const [lastFetched, setLastFetched] = useState(null);
   const ivRef = useRef(null);
+
+  const handleNetioStatusChange = useCallback((id, status) => {
+    if (!id) return;
+    setNetioStatusById((prev) => {
+      const current = prev[id];
+      if (current?.online === status.online && current?.stale === status.stale) return prev;
+      return { ...prev, [id]: status };
+    });
+  }, []);
 
   const loadStatus = useCallback(
     async ({ silent } = { silent: false }) => {
@@ -408,6 +429,7 @@ export default function StatusOnlyPage({ base, cliente, embedded = false }) {
           online: !!item.online,
           last_seen: item.last_seen || null,
           uuid_equipo: item.uuid_equipo || null,
+          es_central: item.es_central === true || String(item.es_central).toLowerCase() === "true",
         }));
 
         setItems(rows);
@@ -425,8 +447,12 @@ export default function StatusOnlyPage({ base, cliente, embedded = false }) {
     if (!clienteId) {
       setItems([]);
       setPage(1);
+      setSearchCentro("");
+      setNetioStatusById({});
       return;
     }
+    setSearchCentro("");
+    setNetioStatusById({});
     loadStatus({ silent: false });
   }, [clienteId, loadStatus]);
 
@@ -436,9 +462,8 @@ export default function StatusOnlyPage({ base, cliente, embedded = false }) {
     const tick = () => loadStatus({ silent: true });
 
     if (autoRefresh) {
-      tick();
       if (ivRef.current) clearInterval(ivRef.current);
-      ivRef.current = setInterval(tick, 3000);
+      ivRef.current = setInterval(tick, STATUS_AUTO_REFRESH_MS);
     } else if (ivRef.current) {
       clearInterval(ivRef.current);
       ivRef.current = null;
@@ -458,15 +483,40 @@ export default function StatusOnlyPage({ base, cliente, embedded = false }) {
     };
   }, [autoRefresh, clienteId, loadStatus]);
 
+  const filteredItems = useMemo(() => {
+    const term = normalizeSearch(searchCentro);
+    if (!term) return items;
+    return items.filter((row) => {
+      const name = normalizeSearch(row.nombre);
+      const uuid = normalizeSearch(row.uuid_equipo);
+      return name.includes(term) || uuid.includes(term);
+    });
+  }, [items, searchCentro]);
+
+  const normalRows = useMemo(
+    () => filteredItems.filter((row) => !row.es_central),
+    [filteredItems]
+  );
+
+  const centralRows = useMemo(
+    () =>
+      filteredItems
+        .filter((row) => row.es_central)
+        .sort((a, b) => (a.nombre || "").localeCompare(b.nombre || "")),
+    [filteredItems]
+  );
+
   const sorted = useMemo(
-    () => items.slice().sort((a, b) => (a.nombre || "").localeCompare(b.nombre || "")),
-    [items]
+    () => normalRows.slice().sort((a, b) => (a.nombre || "").localeCompare(b.nombre || "")),
+    [normalRows]
   );
 
   const totalPages = useMemo(
     () => Math.max(1, Math.ceil(sorted.length / pageSize)),
     [sorted.length, pageSize]
   );
+  const startIdx = sorted.length ? (page - 1) * pageSize + 1 : 0;
+  const endIdx = sorted.length ? Math.min(startIdx + pageSize - 1, sorted.length) : 0;
 
   useEffect(() => {
     if (page > totalPages) setPage(totalPages);
@@ -477,20 +527,37 @@ export default function StatusOnlyPage({ base, cliente, embedded = false }) {
     return sorted.slice(start, start + pageSize);
   }, [sorted, page, pageSize]);
 
-  const { totalCentros, onlineCount, offlineCount } = useMemo(() => {
+  const { totalCentros, totalCentrales, onlineCount, offlineCount } = useMemo(() => {
     const total = sorted.length;
     const online = sorted.filter((row) => row.online).length;
     return {
       totalCentros: total,
+      totalCentrales: centralRows.length,
       onlineCount: online,
       offlineCount: total - online,
     };
-  }, [sorted]);
+  }, [centralRows.length, sorted]);
 
   const onlinePercent = totalCentros ? Math.round((onlineCount / totalCentros) * 100) : 0;
   const offlinePercent = totalCentros ? 100 - onlinePercent : 0;
   const lastUpdatedLabel = lastFetched ? fmtLastSeen(lastFetched.toISOString()) : "-";
+  const hasSearch = normalizeSearch(searchCentro).length > 0;
   const showEmptyState = !loading && sorted.length === 0;
+  const searchBox = (
+    <section className="rounded-lg border border-slate-200 bg-white px-4 py-3 shadow-sm">
+      <label className="block text-xs font-semibold text-slate-600">Buscar centro</label>
+      <input
+        type="search"
+        value={searchCentro}
+        onChange={(event) => {
+          setSearchCentro(event.target.value);
+          setPage(1);
+        }}
+        placeholder="Nombre del centro"
+        className="mt-1 h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+      />
+    </section>
+  );
 
   const content = (
     <div className="space-y-6">
@@ -521,29 +588,99 @@ export default function StatusOnlyPage({ base, cliente, embedded = false }) {
           </div>
         </header>
 
-        <section className="grid gap-3 sm:grid-cols-3">
-          <article className="rounded-2xl bg-white/70 shadow ring-1 ring-slate-200 px-4 py-5">
-            <p className="text-xs uppercase tracking-[0.3em] text-slate-500">Total centros</p>
-            <p className="mt-2 text-3xl font-semibold text-slate-900">{totalCentros}</p>
-            <p className="mt-1 text-xs text-slate-500">Resumen global del cliente seleccionado.</p>
+        <div className="hidden md:block">{searchBox}</div>
+
+        <section className={`grid gap-3 ${totalCentrales > 0 ? "sm:grid-cols-2 xl:grid-cols-4" : "sm:grid-cols-3"}`}>
+          <article className="rounded-lg bg-gradient-to-r from-sky-500 via-blue-500 to-indigo-500 p-[1px] shadow-sm">
+            <div className="rounded-[7px] bg-white px-4 py-4">
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-wide text-sky-900">Total de centros</p>
+                  <p className="mt-1 text-[11px] text-slate-500">Cliente seleccionado</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-4xl font-bold leading-none text-sky-700">{totalCentros}</p>
+                  <p className="mt-1 text-[11px] font-medium text-slate-500">centros</p>
+                </div>
+              </div>
+            </div>
           </article>
+
+          {totalCentrales > 0 && (
+            <article className="rounded-lg bg-gradient-to-r from-cyan-500 via-teal-500 to-emerald-500 p-[1px] shadow-sm">
+              <div className="rounded-[7px] bg-white px-4 py-4">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-wide text-teal-900">Total centrales</p>
+                    <p className="mt-1 text-[11px] text-slate-500">Centrales separadas de la lista</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-4xl font-bold leading-none text-teal-700">{totalCentrales}</p>
+                    <p className="mt-1 text-[11px] font-medium text-slate-500">centrales (PC)</p>
+                  </div>
+                </div>
+                <div className="mt-3 flex flex-wrap gap-1.5">
+                  {centralRows.slice(0, 6).map((row) => (
+                    <span
+                      key={row.id}
+                      className={[
+                        "inline-flex max-w-[180px] items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold ring-1",
+                        row.online
+                          ? "bg-emerald-50 text-emerald-700 ring-emerald-200"
+                          : "bg-rose-50 text-rose-700 ring-rose-200",
+                      ].join(" ")}
+                      title={row.nombre || `Centro ${row.id}`}
+                    >
+                      <span
+                        className={[
+                          "h-2 w-2 shrink-0 rounded-full",
+                          row.online ? "bg-emerald-500" : "bg-rose-500",
+                        ].join(" ")}
+                      />
+                      <span className="truncate">{row.nombre || `Centro ${row.id}`}</span>
+                    </span>
+                  ))}
+                  {centralRows.length > 6 && (
+                    <span className="rounded-full bg-teal-50 px-2.5 py-1 text-[11px] font-semibold text-teal-700 ring-1 ring-teal-200">
+                      +{centralRows.length - 6} mas
+                    </span>
+                  )}
+                </div>
+              </div>
+            </article>
+          )}
+
           <article className="rounded-2xl bg-white/70 shadow ring-1 ring-emerald-200/60 px-4 py-5">
-            <p className="text-xs uppercase tracking-[0.3em] text-emerald-600">Online</p>
-            <p className="mt-2 text-3xl font-semibold text-emerald-700">
-              {onlineCount}
-              <span className="ml-2 text-sm font-medium text-emerald-500">({onlinePercent}%)</span>
-            </p>
-            <p className="mt-1 text-xs text-emerald-600/80">Centros respondiendo dentro del umbral.</p>
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-wide text-emerald-700">Online</p>
+                <p className="mt-1 text-[11px] text-emerald-600/80">Centros conectados</p>
+              </div>
+              <div className="text-right">
+                <p className="text-4xl font-bold leading-none text-emerald-700">{onlineCount}</p>
+                <p className="mt-1 text-[11px] font-medium text-emerald-600">
+                  centros ({onlinePercent}%)
+                </p>
+              </div>
+            </div>
           </article>
           <article className="rounded-2xl bg-white/70 shadow ring-1 ring-rose-200/60 px-4 py-5">
-            <p className="text-xs uppercase tracking-[0.3em] text-rose-600">Offline</p>
-            <p className="mt-2 text-3xl font-semibold text-rose-700">
-              {offlineCount}
-              <span className="ml-2 text-sm font-medium text-rose-500">({offlinePercent}%)</span>
-            </p>
-            <p className="mt-1 text-xs text-rose-600/80">Centros sin respuesta en la ultima verificacion.</p>
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-wide text-rose-700">Offline</p>
+                <p className="mt-1 text-[11px] text-rose-600/80">Centros desconectados</p>
+              </div>
+              <div className="text-right">
+                <p className="text-4xl font-bold leading-none text-rose-700">{offlineCount}</p>
+                <p className="mt-1 text-[11px] font-medium text-rose-600">
+                  centros ({offlinePercent}%)
+                </p>
+              </div>
+            </div>
           </article>
         </section>
+
+        <div className="md:hidden">{searchBox}</div>
 
         <section className="rounded-3xl bg-white shadow-xl shadow-slate-200/30 ring-1 ring-slate-200 overflow-hidden">
           <div className="flex flex-col gap-2 border-b border-slate-200 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
@@ -551,7 +688,7 @@ export default function StatusOnlyPage({ base, cliente, embedded = false }) {
               Ultima actualizacion: <span className="font-medium text-slate-800">{lastUpdatedLabel}</span>
             </div>
             <div className="text-xs text-slate-500">
-              Auto-refresh consulta cada 3 segundos mientras el interruptor este activo.
+              Auto-refresh consulta cada 30 segundos mientras el interruptor este activo.
             </div>
           </div>
 
@@ -559,6 +696,7 @@ export default function StatusOnlyPage({ base, cliente, embedded = false }) {
             <table className="min-w-full divide-y divide-slate-200 text-sm">
               <thead className="bg-slate-50 text-slate-600 text-xs uppercase tracking-[0.2em]">
                 <tr>
+                  <th className="px-4 py-3 text-left w-16">N°</th>
                   <th className="px-4 py-3 text-left">Centro</th>
                   <th className="px-4 py-3 text-left">UUID</th>
                   <th className="px-4 py-3 text-left">NETIO</th>
@@ -566,29 +704,43 @@ export default function StatusOnlyPage({ base, cliente, embedded = false }) {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 bg-white">
-                {paged.map((row) => (
-                  <tr key={row.id} className="transition hover:bg-slate-50">
-                    <td className="px-4 py-3 align-top">
-                      <div className="font-semibold text-slate-900">{row.nombre || `Centro ${row.id}`}</div>
-                      <div className="mt-1 text-xs text-slate-500">ID interno: {row.id}</div>
-                    </td>
-                    <td className="px-4 py-3 align-top">
-                      <div className="font-mono text-xs text-slate-700">{row.uuid_equipo || "-"}</div>
-                      <div className="mt-2 inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1 text-[11px] font-medium text-slate-700 ring-1 ring-slate-200">
-                        <Dot online={row.online} />
-                        {row.online ? "Conectado" : "Desconectado"}
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 align-top">
-                      <NetioCell base={base} row={row} />
-                    </td>
-                    <td className="px-4 py-3 align-top text-xs text-slate-600">{fmtLastSeen(row.last_seen)}</td>
-                  </tr>
-                ))}
+                {paged.map((row, index) => {
+                  const netioStatus = netioStatusById[row.id];
+                  const netioOffline = !!netioStatus && (!netioStatus.online || netioStatus.stale);
+                  return (
+                    <tr
+                      key={row.id}
+                      className={[
+                        "transition",
+                        netioOffline
+                          ? "bg-rose-50/80 hover:bg-rose-100 ring-1 ring-inset ring-rose-200"
+                          : "hover:bg-slate-50",
+                      ].join(" ")}
+                    >
+                      <td className="px-4 py-3 align-top text-xs text-slate-600">
+                        {(page - 1) * pageSize + index + 1}
+                      </td>
+                      <td className="px-4 py-3 align-top">
+                        <div className="font-semibold text-slate-900">{row.nombre || `Centro ${row.id}`}</div>
+                      </td>
+                      <td className="px-4 py-3 align-top">
+                        <div className="font-mono text-xs text-slate-700">{row.uuid_equipo || "-"}</div>
+                        <div className="mt-2 inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1 text-[11px] font-medium text-slate-700 ring-1 ring-slate-200">
+                          <Dot online={row.online} />
+                          {row.online ? "Conectado" : "Desconectado"}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 align-top">
+                        <NetioCell base={base} row={row} onStatusChange={handleNetioStatusChange} />
+                      </td>
+                      <td className="px-4 py-3 align-top text-xs text-slate-600">{fmtLastSeen(row.last_seen)}</td>
+                    </tr>
+                  );
+                })}
 
                 {loading && (
                   <tr>
-                    <td colSpan={4} className="px-4 py-8 text-center text-sm text-slate-500">
+                    <td colSpan={5} className="px-4 py-8 text-center text-sm text-slate-500">
                       <div className="inline-flex items-center gap-2">
                         <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-slate-300 border-t-transparent" />
                         Consultando estado de los centros...
@@ -599,8 +751,10 @@ export default function StatusOnlyPage({ base, cliente, embedded = false }) {
 
                 {showEmptyState && (
                   <tr>
-                    <td colSpan={4} className="px-4 py-10 text-center text-sm text-slate-500">
-                      No hay centros registrados para este cliente o aun no reportan actividad.
+                    <td colSpan={5} className="px-4 py-10 text-center text-sm text-slate-500">
+                      {hasSearch
+                        ? "No hay centros que coincidan con la busqueda."
+                        : "No hay centros registrados para este cliente o aun no reportan actividad."}
                     </td>
                   </tr>
                 )}
@@ -610,41 +764,48 @@ export default function StatusOnlyPage({ base, cliente, embedded = false }) {
 
           <div className="md:hidden">
             <div className="space-y-4 p-4">
-              {paged.map((row) => (
-                <div
-                  key={row.id}
-                  className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm space-y-3"
-                >
-                  <div>
-                    <h2 className="text-base font-semibold text-slate-900">
-                      {row.nombre || `Centro ${row.id}`}
-                    </h2>
-                    <p className="mt-1 text-xs text-slate-500">ID interno: {row.id}</p>
-                    <p className="text-xs text-slate-500">
-                      UUID:{" "}
-                      <span className="font-mono text-slate-700">
-                        {row.uuid_equipo || "-"}
-                      </span>
-                    </p>
-                    <div className="mt-2 inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1 text-[11px] font-medium text-slate-700 ring-1 ring-slate-200">
-                      <Dot online={row.online} />
-                      {row.online ? "Conectado" : "Desconectado"}
+              {paged.map((row, index) => {
+                const netioStatus = netioStatusById[row.id];
+                const netioOffline = !!netioStatus && (!netioStatus.online || netioStatus.stale);
+                return (
+                  <div
+                    key={row.id}
+                    className={[
+                      "rounded-2xl border p-4 shadow-sm space-y-3",
+                      netioOffline
+                        ? "border-rose-300 bg-rose-50 ring-1 ring-rose-200"
+                        : "border-slate-200 bg-white",
+                    ].join(" ")}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="mb-1 text-xs font-semibold text-slate-500">
+                          N° {(page - 1) * pageSize + index + 1}
+                        </div>
+                        <h2 className="truncate text-base font-semibold text-slate-900">
+                          {row.nombre || `Centro ${row.id}`}
+                        </h2>
+                      </div>
+                      <div className="inline-flex shrink-0 items-center gap-2 rounded-full bg-slate-100 px-3 py-1 text-[11px] font-medium text-slate-700 ring-1 ring-slate-200">
+                        <Dot online={row.online} />
+                        {row.online ? "Conectado" : "Desconectado"}
+                      </div>
+                    </div>
+
+                    <div>
+                      <span className="text-xs uppercase tracking-[0.3em] text-slate-500">NETIO</span>
+                      <div className="mt-2">
+                        <NetioCell base={base} row={row} onStatusChange={handleNetioStatusChange} />
+                      </div>
+                    </div>
+
+                    <div className="text-xs text-slate-500">
+                      Ultimo reporte:{" "}
+                      <span className="font-medium text-slate-700">{fmtLastSeen(row.last_seen)}</span>
                     </div>
                   </div>
-
-                  <div>
-                    <span className="text-xs uppercase tracking-[0.3em] text-slate-500">NETIO</span>
-                    <div className="mt-2">
-                      <NetioCell base={base} row={row} />
-                    </div>
-                  </div>
-
-                  <div className="text-xs text-slate-500">
-                    Ultimo reporte:{" "}
-                    <span className="font-medium text-slate-700">{fmtLastSeen(row.last_seen)}</span>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
 
               {loading && (
                 <div className="rounded-2xl border border-slate-200 bg-white p-6 text-center text-sm text-slate-500 shadow-sm">
@@ -657,17 +818,22 @@ export default function StatusOnlyPage({ base, cliente, embedded = false }) {
 
               {showEmptyState && !loading && (
                 <div className="rounded-2xl border border-slate-200 bg-white p-6 text-center text-sm text-slate-500 shadow-sm">
-                  No hay centros registrados para este cliente o aun no reportan actividad.
+                  {hasSearch
+                    ? "No hay centros que coincidan con la busqueda."
+                    : "No hay centros registrados para este cliente o aun no reportan actividad."}
                 </div>
               )}
             </div>
           </div>
 
-          <div className="flex flex-col gap-3 border-t border-slate-200 bg-slate-50/70 px-3 py-3 text-sm text-slate-600 sm:flex-row sm:items-center sm:justify-between sm:px-4">
-            <div className="flex flex-wrap items-center gap-2 rounded-xl bg-white p-1.5 ring-1 ring-slate-200 shadow-sm">
-              <span className="pl-1 text-xs font-medium text-slate-500">Filas</span>
+          <div className="flex flex-col gap-3 border-t border-slate-200 bg-slate-50/70 px-3 py-3 text-sm text-slate-600 sm:flex-row sm:flex-wrap sm:items-center sm:px-4">
+            <div className="text-sm text-slate-700">
+              Mostrando <b>{startIdx}</b> - <b>{endIdx}</b> de <b>{sorted.length}</b>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 rounded-xl bg-white p-1.5 ring-1 ring-slate-200 shadow-sm sm:ml-auto">
+              <label className="pl-1 text-xs font-medium text-slate-500">Filas</label>
               <select
-                className="h-8 rounded-lg border-slate-300 bg-slate-50 px-2 text-xs font-medium text-slate-800"
+                className="h-8 rounded-lg border-slate-300 bg-slate-50 px-2 text-sm font-medium text-slate-800"
                 value={pageSize}
                 onChange={(e) => {
                   const next = parseInt(e.target.value, 10) || 10;
@@ -675,33 +841,37 @@ export default function StatusOnlyPage({ base, cliente, embedded = false }) {
                   setPage(1);
                 }}
               >
-                {[10, 15, 25, 50].map((n) => (
+                {[10, 15, 30, 50].map((n) => (
                   <option key={n} value={n}>{n}</option>
                 ))}
               </select>
-            </div>
-            <div className="flex items-center gap-1">
-              <button
-                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-300 bg-white text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-300"
-                onClick={() => setPage(1)}
-                disabled={page <= 1}
-              >{"<<"}</button>
-              <button
-                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-300 bg-white text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-300"
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
-                disabled={page <= 1}
-              >{"<"}</button>
-              <span className="min-w-14 rounded-lg bg-blue-50 px-2 py-1.5 text-center text-xs font-bold text-blue-800 ring-1 ring-blue-100">{page} / {totalPages}</span>
-              <button
-                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-900 bg-white text-xs font-semibold text-slate-900 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-300"
-                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                disabled={page >= totalPages}
-              >{">"}</button>
-              <button
-                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-900 bg-white text-xs font-semibold text-slate-900 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-300"
-                onClick={() => setPage(totalPages)}
-                disabled={page >= totalPages}
-              >{">>"}</button>
+              <div className="ml-auto flex items-center gap-1 sm:ml-0">
+                <button
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-300 bg-white text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-300"
+                  onClick={() => setPage(1)}
+                  disabled={page <= 1}
+                  title="Primera"
+                >{"<<"}</button>
+                <button
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-300 bg-white text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-300"
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  disabled={page <= 1}
+                  title="Anterior"
+                >{"<"}</button>
+                <span className="min-w-14 rounded-lg bg-blue-50 px-2 py-1.5 text-center text-xs font-bold text-blue-800 ring-1 ring-blue-100">{page} / {totalPages}</span>
+                <button
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-900 bg-white text-xs font-semibold text-slate-900 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-300"
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={page >= totalPages}
+                  title="Siguiente"
+                >{">"}</button>
+                <button
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-900 bg-white text-xs font-semibold text-slate-900 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-300"
+                  onClick={() => setPage(totalPages)}
+                  disabled={page >= totalPages}
+                  title="Ultima"
+                >{">>"}</button>
+              </div>
             </div>
           </div>
         </section>

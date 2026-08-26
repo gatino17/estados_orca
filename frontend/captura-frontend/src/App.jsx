@@ -864,7 +864,7 @@ function DashboardShell({
                           : "text-white/85 hover:text-white"
                       }`}
                     >
-                      Status
+                      Netio
                     </button>
                   </div>
 
@@ -931,7 +931,7 @@ function DashboardShell({
                           : "bg-white/10 text-white/85"
                       }`}
                     >
-                      Status
+                      Netio
                     </button>
                   </div>
                 </>

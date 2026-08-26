@@ -768,7 +768,6 @@ export default function CentrosTable({
                   <td className="px-3 md:px-4 py-3 align-top hidden sm:table-cell">
                     <div className="text-xs text-slate-700 space-y-0.5">
                       <div className="font-mono">{row.uuid_equipo || "--"}</div>
-                      <div className="text-[11px] text-slate-500">Centro ID: {row.centro_id}</div>
                       <div className="text-[11px] text-slate-500">
                         last_seen: {fmtLastSeen(row.last_seen)}
                       </div>

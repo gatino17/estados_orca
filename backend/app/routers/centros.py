@@ -335,6 +335,7 @@ async def status_centros(
             "id": cen.id,
             "nombre": cen.nombre,
             "uuid_equipo": cen.uuid_equipo,
+            "es_central": bool(cen.es_central),
             "last_seen": (
                 last_seen_dt.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
                 if last_seen_dt else None

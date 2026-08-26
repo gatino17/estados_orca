@@ -92,11 +92,17 @@ export default function ImageModal({ open, src, onClose, title }) {
               </button>
             </div>
           </div>
-          <div className={isFullscreen ? "grid h-[calc(100dvh-57px)] w-screen place-items-center bg-black" : "bg-slate-50"}>
+          <div
+            className={
+              isFullscreen
+                ? "flex h-[calc(100dvh-57px)] w-screen justify-center overflow-y-auto bg-black p-3"
+                : "bg-slate-50"
+            }
+          >
             {/* eslint-disable-next-line jsx-a11y/alt-text */}
             <img
               src={src}
-              className={isFullscreen ? "max-h-full max-w-full object-contain" : "w-full h-auto object-contain max-h-[80vh]"}
+              className={isFullscreen ? "h-auto max-w-full self-start object-contain" : "w-full h-auto object-contain max-h-[80vh]"}
             />
           </div>
         </div>
