@@ -432,7 +432,7 @@ async def listar_capturas(
             .over(partition_by=Captura.centro_id, order_by=Captura.created_at.desc())
             .label("rn"),
         )
-        .where(Captura.fecha_reporte == target)
+        .where(Captura.cliente_id == cliente_id, Captura.fecha_reporte == target)
     ).subquery()
 
     ver_sq = (
@@ -444,6 +444,8 @@ async def listar_capturas(
             .over(partition_by=CapturaVersion.captura_id, order_by=CapturaVersion.tomada_en.desc())
             .label("rn"),
         )
+        .join(Captura, Captura.id == CapturaVersion.captura_id)
+        .where(Captura.cliente_id == cliente_id, Captura.fecha_reporte == target)
     ).subquery()
 
     base = (

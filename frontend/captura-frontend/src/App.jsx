@@ -453,6 +453,7 @@ function DashboardShell({
   async function loadCapturas(opts = { silent: false }) {
     const cid = opts?.clienteId ?? cliente?.id;
     if (!cid) return;
+    if (opts.silent && capturasAbortRef.current) return null;
     if (!opts.silent) setLoading(true);
     const requestId = capturasRequestIdRef.current + 1;
     capturasRequestIdRef.current = requestId;
