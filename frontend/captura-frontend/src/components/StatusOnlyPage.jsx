@@ -47,6 +47,7 @@ const FETCH_POLL_MS = 1000;
 const CONFIRM_INTERVAL_MS = 400;
 const CONFIRM_TIMEOUT_MS = 25000;
 const CYCLE_TIMEOUT_MS = 30000;
+const RESTART_MIN_CONFIRM_MS = 8000;
 
 const NETIO_API_BASE = "/api/netio";
 const ENABLE_ACTIONS = true;
@@ -59,6 +60,8 @@ const toneStyles = {
 };
 
 function MiniBtn({ title, onClick, disabled, busy, children }) {
+  const isActive = !disabled && !busy;
+
   return (
     <button
       type="button"
@@ -78,11 +81,11 @@ function MiniBtn({ title, onClick, disabled, busy, children }) {
           <svg
             xmlns="http://www.w3.org/2000/svg"
             viewBox="0 0 24 24"
-            className="h-3 w-3 text-slate-600"
+            className={["h-3.5 w-3.5", isActive ? "text-emerald-600" : "text-slate-400"].join(" ")}
             aria-hidden="true"
           >
             <path
-              d="M4 4v6h6"
+              d="M21 2v6h-6"
               fill="none"
               stroke="currentColor"
               strokeWidth="1.5"
@@ -90,7 +93,23 @@ function MiniBtn({ title, onClick, disabled, busy, children }) {
               strokeLinejoin="round"
             />
             <path
-              d="M20 12a8 8 0 0 1-13.66 5.66L4 16"
+              d="M3 12a9 9 0 0 1 15-6.7L21 8"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+            <path
+              d="M3 22v-6h6"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+            <path
+              d="M21 12a9 9 0 0 1-15 6.7L3 16"
               fill="none"
               stroke="currentColor"
               strokeWidth="1.5"
@@ -132,6 +151,11 @@ function NetioCell({ base, row, onStatusChange }) {
     online: !!payload?.online,
     stale: !!payload?.stale,
   });
+
+  const parseUpdatedAt = (snapshot) => {
+    const value = Date.parse(snapshot?.updated_at || "");
+    return Number.isNaN(value) ? null : value;
+  };
 
   const getStateOnce = useCallback(async () => {
     if (!row?.uuid_equipo) return null;
@@ -210,6 +234,34 @@ function NetioCell({ base, row, onStatusChange }) {
     return null;
   };
 
+  const waitForRestartReady = async (outlet, startedAt, baselineUpdatedAt = null, timeoutMs = CYCLE_TIMEOUT_MS) => {
+    let sawOutletOff = false;
+
+    while (Date.now() - startedAt < timeoutMs) {
+      const snapshot = await getStateOnce();
+      if (snapshot) {
+        const mapped = mapFromJson(snapshot);
+        const current = !!snapshot?.outputs?.[String(outlet)];
+        const updatedAt = parseUpdatedAt(snapshot);
+        const isFreshReport =
+          updatedAt === null
+            ? true
+            : baselineUpdatedAt === null
+            ? updatedAt >= startedAt
+            : updatedAt > baselineUpdatedAt;
+
+        if (!current) sawOutletOff = true;
+
+        const waitedMinimum = Date.now() - startedAt >= RESTART_MIN_CONFIRM_MS;
+        if (isFreshReport && mapped.online && !mapped.stale && current && (sawOutletOff || waitedMinimum)) {
+          return mapped;
+        }
+      }
+      await delay(CONFIRM_INTERVAL_MS);
+    }
+    return null;
+  };
+
   const onToggle = async (key, next) => {
     const outlet = key === "pc" ? 1 : key === "cams" ? 2 : key === "eq3" ? 3 : 4;
     const action = next ? "on" : "off";
@@ -256,8 +308,10 @@ function NetioCell({ base, row, onStatusChange }) {
     progressTimer = setInterval(showProgress, 1000);
 
     try {
+      const baselineSnapshot = await getStateOnce();
+      const baselineUpdatedAt = parseUpdatedAt(baselineSnapshot);
       await callSingle(outlet, "cycle");
-      const confirmed = await waitForOutletState(outlet, true, CYCLE_TIMEOUT_MS);
+      const confirmed = await waitForRestartReady(outlet, startedAt, baselineUpdatedAt, CYCLE_TIMEOUT_MS);
       if (progressTimer) {
         clearInterval(progressTimer);
         progressTimer = null;
@@ -274,7 +328,7 @@ function NetioCell({ base, row, onStatusChange }) {
         setStale(confirmed.stale);
         showMsg(`Reinicio OK boca ${outlet} (${elapsedSeconds()}s).`, "success", 3500);
       } else {
-        showMsg(`Reinicio enviado. Confirmacion pendiente (${elapsedSeconds()}s).`, "info", 6000);
+        showMsg(`Reinicio enviado. Confirmacion pendiente (${elapsedSeconds()}s).`, "info", 0);
       }
     } catch (error) {
       if (progressTimer) {
