@@ -244,13 +244,24 @@ function NetioCell({ base, row, onStatusChange }) {
 
   const onRestart = async (key) => {
     const outlet = key === "pc" ? 1 : key === "cams" ? 2 : key === "eq3" ? 3 : 4;
+    const startedAt = Date.now();
+    let progressTimer = null;
+    const elapsedSeconds = () => Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
+    const showProgress = () => {
+      showMsg(`Reiniciando boca ${outlet}... ${elapsedSeconds()}s`, "progress", 0);
+    };
 
     setBusyKey(`${key}-cycle`);
-    showMsg(`Reiniciando boca ${outlet}...`, "progress", 0);
+    showProgress();
+    progressTimer = setInterval(showProgress, 1000);
 
     try {
       await callSingle(outlet, "cycle");
       const confirmed = await waitForOutletState(outlet, true, CYCLE_TIMEOUT_MS);
+      if (progressTimer) {
+        clearInterval(progressTimer);
+        progressTimer = null;
+      }
       if (confirmed) {
         setStates((prev) => ({
           ...prev,
@@ -261,14 +272,19 @@ function NetioCell({ base, row, onStatusChange }) {
         }));
         setNetioOnline(confirmed.online);
         setStale(confirmed.stale);
-        showMsg(`Reinicio de boca ${outlet} completado.`, "success", 2500);
+        showMsg(`Reinicio OK boca ${outlet} (${elapsedSeconds()}s).`, "success", 3500);
       } else {
-        showMsg(`Comando de reinicio enviado. Confirmacion pendiente.`, "info", 6000);
+        showMsg(`Reinicio enviado. Confirmacion pendiente (${elapsedSeconds()}s).`, "info", 6000);
       }
     } catch (error) {
+      if (progressTimer) {
+        clearInterval(progressTimer);
+        progressTimer = null;
+      }
       console.error(error);
-      showMsg(`No se pudo reiniciar la boca ${outlet}.`, "error", 5000);
+      showMsg(`No se pudo reiniciar la boca ${outlet} (${elapsedSeconds()}s).`, "error", 5000);
     } finally {
+      if (progressTimer) clearInterval(progressTimer);
       setBusyKey(null);
     }
   };
