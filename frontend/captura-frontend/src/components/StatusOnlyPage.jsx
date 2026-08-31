@@ -47,7 +47,6 @@ const FETCH_POLL_MS = 1000;
 const CONFIRM_INTERVAL_MS = 400;
 const CONFIRM_TIMEOUT_MS = 25000;
 const CYCLE_TIMEOUT_MS = 30000;
-const RESTART_MIN_CONFIRM_MS = 8000;
 
 const NETIO_API_BASE = "/api/netio";
 const ENABLE_ACTIONS = true;
@@ -262,14 +261,13 @@ function NetioCell({ base, row, onStatusChange }) {
 
         if (!current) sawOutletOff = true;
 
-        const waitedMinimum = Date.now() - startedAt >= RESTART_MIN_CONFIRM_MS;
-        if (isFreshReport && mapped.online && !mapped.stale && current && (sawOutletOff || waitedMinimum)) {
-          return mapped;
+        if (isFreshReport && mapped.online && !mapped.stale && current && sawOutletOff) {
+          return { mapped, sawOutletOff };
         }
       }
       await delay(CONFIRM_INTERVAL_MS);
     }
-    return null;
+    return { mapped: null, sawOutletOff };
   };
 
   const onToggle = async (key, next) => {
@@ -315,7 +313,8 @@ function NetioCell({ base, row, onStatusChange }) {
       const baselineSnapshot = await getStateOnce();
       const baselineUpdatedAt = parseUpdatedAt(baselineSnapshot);
       await callSingle(outlet, "cycle");
-      const confirmed = await waitForRestartReady(outlet, startedAt, baselineUpdatedAt, CYCLE_TIMEOUT_MS);
+      const result = await waitForRestartReady(outlet, startedAt, baselineUpdatedAt, CYCLE_TIMEOUT_MS);
+      const confirmed = result?.mapped;
       if (progressTimer) {
         clearInterval(progressTimer);
         progressTimer = null;
@@ -324,7 +323,7 @@ function NetioCell({ base, row, onStatusChange }) {
         applyMappedState(confirmed);
         showMsg(`Reinicio OK boca ${outlet} (${elapsedSeconds()}s).`, "success", 3500);
       } else {
-        setPendingRestart({ outlet, startedAt, baselineUpdatedAt });
+        setPendingRestart({ outlet, startedAt, baselineUpdatedAt, sawOutletOff: !!result?.sawOutletOff });
         showMsg(`Confirmacion pendiente boca ${outlet}... ${elapsedSeconds()}s`, "info", 0);
       }
     } catch (error) {
@@ -354,13 +353,18 @@ function NetioCell({ base, row, onStatusChange }) {
 
       const mapped = mapNetioState(snapshot);
       const current = !!snapshot?.outputs?.[String(pendingRestart.outlet)];
+      const sawOutletOff = pendingRestart.sawOutletOff || !current;
       const isFreshReport = isFreshRestartReport(
         snapshot,
         pendingRestart.startedAt,
         pendingRestart.baselineUpdatedAt
       );
 
-      if (isFreshReport && mapped.online && !mapped.stale && current) {
+      if (!pendingRestart.sawOutletOff && !current) {
+        setPendingRestart((prev) => (prev ? { ...prev, sawOutletOff: true } : prev));
+      }
+
+      if (isFreshReport && mapped.online && !mapped.stale && current && sawOutletOff) {
         applyMappedState(mapped);
         setPendingRestart(null);
         showMsg(`Reinicio OK boca ${pendingRestart.outlet} (${elapsedSeconds()}s).`, "success", 5000);
