@@ -59,6 +59,29 @@ const toneStyles = {
   info: "border-slate-300 bg-slate-50 text-slate-700",
 };
 
+function mapNetioState(payload) {
+  return {
+    pc: !!payload?.outputs?.["1"],
+    cams: !!payload?.outputs?.["2"],
+    eq3: !!payload?.outputs?.["3"],
+    todo: !!payload?.outputs?.["4"],
+    online: !!payload?.online,
+    stale: !!payload?.stale,
+  };
+}
+
+function parseUpdatedAt(snapshot) {
+  const value = Date.parse(snapshot?.updated_at || "");
+  return Number.isNaN(value) ? null : value;
+}
+
+function isFreshRestartReport(snapshot, startedAt, baselineUpdatedAt = null) {
+  const updatedAt = parseUpdatedAt(snapshot);
+  if (updatedAt === null) return true;
+  if (baselineUpdatedAt === null) return updatedAt >= startedAt;
+  return updatedAt > baselineUpdatedAt;
+}
+
 function MiniBtn({ title, onClick, disabled, busy, children }) {
   const isActive = !disabled && !busy;
 
@@ -134,6 +157,7 @@ function NetioCell({ base, row, onStatusChange }) {
   const [netioOnline, setNetioOnline] = useState(null);
   const [stale, setStale] = useState(false);
   const [busyKey, setBusyKey] = useState(null);
+  const [pendingRestart, setPendingRestart] = useState(null);
   const isBusy = !!busyKey;
 
   const [msg, setMsg] = useState(null);
@@ -142,20 +166,6 @@ function NetioCell({ base, row, onStatusChange }) {
 
   const disabledCommon = !ENABLE_ACTIONS || !netioOnline || stale || isBusy;
   const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-  const mapFromJson = (payload) => ({
-    pc: !!payload?.outputs?.["1"],
-    cams: !!payload?.outputs?.["2"],
-    eq3: !!payload?.outputs?.["3"],
-    todo: !!payload?.outputs?.["4"],
-    online: !!payload?.online,
-    stale: !!payload?.stale,
-  });
-
-  const parseUpdatedAt = (snapshot) => {
-    const value = Date.parse(snapshot?.updated_at || "");
-    return Number.isNaN(value) ? null : value;
-  };
 
   const getStateOnce = useCallback(async () => {
     if (!row?.uuid_equipo) return null;
@@ -166,21 +176,27 @@ function NetioCell({ base, row, onStatusChange }) {
     return response.json();
   }, [base, row?.uuid_equipo]);
 
+  const applyMappedState = useCallback(
+    (mapped) => {
+      setStates((prev) => ({
+        ...prev,
+        pc: mapped.pc,
+        cams: mapped.cams,
+        eq3: mapped.eq3,
+        todo: mapped.todo,
+      }));
+      setNetioOnline(mapped.online);
+      setStale(mapped.stale);
+      onStatusChange?.(row.id, { online: mapped.online, stale: mapped.stale });
+    },
+    [onStatusChange, row.id]
+  );
+
   const refreshFromBackend = useCallback(async () => {
     const snapshot = await getStateOnce();
     if (!snapshot) return;
-    const mapped = mapFromJson(snapshot);
-    setStates((prev) => ({
-      ...prev,
-      pc: mapped.pc,
-      cams: mapped.cams,
-      eq3: mapped.eq3,
-      todo: mapped.todo,
-    }));
-    setNetioOnline(mapped.online);
-    setStale(mapped.stale);
-    onStatusChange?.(row.id, { online: mapped.online, stale: mapped.stale });
-  }, [getStateOnce, onStatusChange, row.id]);
+    applyMappedState(mapNetioState(snapshot));
+  }, [applyMappedState, getStateOnce]);
 
   useEffect(() => {
     let intervalId;
@@ -226,7 +242,7 @@ function NetioCell({ base, row, onStatusChange }) {
       if (snapshot) {
         const current = !!snapshot?.outputs?.[String(outlet)];
         if (current === expected) {
-          return mapFromJson(snapshot);
+          return mapNetioState(snapshot);
         }
       }
       await delay(CONFIRM_INTERVAL_MS);
@@ -240,15 +256,9 @@ function NetioCell({ base, row, onStatusChange }) {
     while (Date.now() - startedAt < timeoutMs) {
       const snapshot = await getStateOnce();
       if (snapshot) {
-        const mapped = mapFromJson(snapshot);
+        const mapped = mapNetioState(snapshot);
         const current = !!snapshot?.outputs?.[String(outlet)];
-        const updatedAt = parseUpdatedAt(snapshot);
-        const isFreshReport =
-          updatedAt === null
-            ? true
-            : baselineUpdatedAt === null
-            ? updatedAt >= startedAt
-            : updatedAt > baselineUpdatedAt;
+        const isFreshReport = isFreshRestartReport(snapshot, startedAt, baselineUpdatedAt);
 
         if (!current) sawOutletOff = true;
 
@@ -266,6 +276,7 @@ function NetioCell({ base, row, onStatusChange }) {
     const outlet = key === "pc" ? 1 : key === "cams" ? 2 : key === "eq3" ? 3 : 4;
     const action = next ? "on" : "off";
 
+    setPendingRestart(null);
     setBusyKey(key);
     showMsg(`${next ? "Encendiendo" : "Apagando"} boca ${outlet}...`, "progress", 0);
 
@@ -273,15 +284,7 @@ function NetioCell({ base, row, onStatusChange }) {
       await callSingle(outlet, action);
       const confirmed = await waitForOutletState(outlet, next);
       if (confirmed) {
-        setStates((prev) => ({
-          ...prev,
-          pc: confirmed.pc,
-          cams: confirmed.cams,
-          eq3: confirmed.eq3,
-          todo: confirmed.todo,
-        }));
-        setNetioOnline(confirmed.online);
-        setStale(confirmed.stale);
+        applyMappedState(confirmed);
         showMsg(`Boca ${outlet} ${next ? "encendida" : "apagada"}.`, "success", 2500);
       } else {
         showMsg(`Comando enviado a la boca ${outlet}. Confirmacion pendiente.`, "info", 6000);
@@ -303,6 +306,7 @@ function NetioCell({ base, row, onStatusChange }) {
       showMsg(`Reiniciando boca ${outlet}... ${elapsedSeconds()}s`, "progress", 0);
     };
 
+    setPendingRestart(null);
     setBusyKey(`${key}-cycle`);
     showProgress();
     progressTimer = setInterval(showProgress, 1000);
@@ -317,18 +321,11 @@ function NetioCell({ base, row, onStatusChange }) {
         progressTimer = null;
       }
       if (confirmed) {
-        setStates((prev) => ({
-          ...prev,
-          pc: confirmed.pc,
-          cams: confirmed.cams,
-          eq3: confirmed.eq3,
-          todo: confirmed.todo,
-        }));
-        setNetioOnline(confirmed.online);
-        setStale(confirmed.stale);
+        applyMappedState(confirmed);
         showMsg(`Reinicio OK boca ${outlet} (${elapsedSeconds()}s).`, "success", 3500);
       } else {
-        showMsg(`Reinicio enviado. Confirmacion pendiente (${elapsedSeconds()}s).`, "info", 0);
+        setPendingRestart({ outlet, startedAt, baselineUpdatedAt });
+        showMsg(`Confirmacion pendiente boca ${outlet}... ${elapsedSeconds()}s`, "info", 0);
       }
     } catch (error) {
       if (progressTimer) {
@@ -336,12 +333,51 @@ function NetioCell({ base, row, onStatusChange }) {
         progressTimer = null;
       }
       console.error(error);
+      setPendingRestart(null);
       showMsg(`No se pudo reiniciar la boca ${outlet} (${elapsedSeconds()}s).`, "error", 5000);
     } finally {
       if (progressTimer) clearInterval(progressTimer);
       setBusyKey(null);
     }
   };
+
+  useEffect(() => {
+    if (!pendingRestart || isBusy) return undefined;
+
+    let cancelled = false;
+    const elapsedSeconds = () =>
+      Math.max(0, Math.floor((Date.now() - pendingRestart.startedAt) / 1000));
+
+    const checkPendingRestart = async () => {
+      const snapshot = await getStateOnce();
+      if (!snapshot || cancelled) return;
+
+      const mapped = mapNetioState(snapshot);
+      const current = !!snapshot?.outputs?.[String(pendingRestart.outlet)];
+      const isFreshReport = isFreshRestartReport(
+        snapshot,
+        pendingRestart.startedAt,
+        pendingRestart.baselineUpdatedAt
+      );
+
+      if (isFreshReport && mapped.online && !mapped.stale && current) {
+        applyMappedState(mapped);
+        setPendingRestart(null);
+        showMsg(`Reinicio OK boca ${pendingRestart.outlet} (${elapsedSeconds()}s).`, "success", 5000);
+        return;
+      }
+
+      showMsg(`Confirmacion pendiente boca ${pendingRestart.outlet}... ${elapsedSeconds()}s`, "info", 0);
+    };
+
+    checkPendingRestart();
+    const intervalId = setInterval(checkPendingRestart, FETCH_POLL_MS);
+
+    return () => {
+      cancelled = true;
+      clearInterval(intervalId);
+    };
+  }, [applyMappedState, getStateOnce, isBusy, pendingRestart]);
 
   useEffect(() => () => clearMsgTimer(), []);
 
